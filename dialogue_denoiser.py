@@ -345,68 +345,73 @@ def evaluate():
     with tf.Session() as sess:
         # Create model and load parameters.
         model = create_model(sess, True)
-        model.batch_size = 1  # We decode one sentence at a time.
+        accuracy = eval_model(sess, model)
+        print('Per-utterance accuracy: {:.3f}'.format(accuracy))
 
-        # Load vocabularies.
-        enc_vocab_path = os.path.join(
-            FLAGS.data_dir,
-            "vocab%d.enc" % FLAGS.from_vocab_size,
-        )
-        dec_vocab_path = os.path.join(
-            FLAGS.data_dir,
-            "vocab%d.dec" % FLAGS.to_vocab_size
-        )
 
-        enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
-        dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+def eval_model(in_session, in_model):
+    original_batch_size = in_model.batch_size
+    in_model.batch_size = 1  # We decode one sentence at a time.
 
-        results = []
-        with getreader('utf-8')(open(FLAGS.from_dev_data)) as encoder_in:
-            with getreader('utf-8')(open(FLAGS.to_dev_data)) as decoder_in:
-                for enc_line, dec_line in zip(encoder_in, decoder_in):
-                    enc_line = enc_line.strip()
-                    dec_line = dec_line.strip()
-                    # Get token-ids for the input sentence.
-                    token_ids = data_utils.sentence_to_token_ids(
-                        tf.compat.as_bytes(enc_line),
-                        enc_vocab
-                    )
-                    # Which bucket does it belong to?
-                    bucket_id = min([
-                        b for b in xrange(len(_buckets))
-                        if _buckets[b][0] > len(token_ids)
-                    ])
-                    # Get a 1-element batch to feed the sentence to the model.
-                    encoder_inputs, decoder_inputs, target_weights = model.get_batch(
-                        {bucket_id: [(token_ids, [])]},
-                        bucket_id
-                    )
-                    # Get output logits for the sentence.
-                    _, _, output_logits = model.step(
-                        sess,
-                        encoder_inputs,
-                        decoder_inputs,
-                        target_weights,
-                        bucket_id,
-                        True
-                    )
-                    # This is a greedy decoder - outputs are just argmaxes of output_logits.
-                    # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-                    outputs = [
-                        int(np.argmax(logit, axis=1))
-                        for logit in output_logits
-                    ]
-                    # If there is an EOS symbol in outputs, cut them at that point.
-                    if data_utils._EOS in outputs:
-                        outputs = outputs[:outputs.index(data_utils._EOS)]
-                    gold_outputs = data_utils.sentence_to_token_ids(
-                        tf.compat.as_bytes(dec_line),
-                        dec_vocab
-                    )
-                    results.append(int(outputs == gold_outputs))
-        print(
-            'Per-utterance accuracy: {:.3f}'.format(sum(results) / float(len(results)))
-        )
+    # Load vocabularies.
+    enc_vocab_path = os.path.join(
+        FLAGS.data_dir,
+        "vocab%d.enc" % FLAGS.from_vocab_size,
+    )
+    dec_vocab_path = os.path.join(
+        FLAGS.data_dir,
+        "vocab%d.dec" % FLAGS.to_vocab_size
+    )
+
+    enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
+    dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+
+    results = []
+    with getreader('utf-8')(open(FLAGS.from_dev_data)) as encoder_in:
+        with getreader('utf-8')(open(FLAGS.to_dev_data)) as decoder_in:
+            for enc_line, dec_line in zip(encoder_in, decoder_in):
+                enc_line = enc_line.strip()
+                dec_line = dec_line.strip()
+                # Get token-ids for the input sentence.
+                token_ids = data_utils.sentence_to_token_ids(
+                    tf.compat.as_bytes(enc_line),
+                    enc_vocab
+                )
+                # Which bucket does it belong to?
+                bucket_id = min([
+                    b for b in xrange(len(_buckets))
+                    if _buckets[b][0] > len(token_ids)
+                ])
+                # Get a 1-element batch to feed the sentence to the model.
+                encoder_inputs, decoder_inputs, target_weights = in_model.get_batch(
+                    {bucket_id: [(token_ids, [])]},
+                    bucket_id
+                )
+                # Get output logits for the sentence.
+                _, _, output_logits = in_model.step(
+                    in_session,
+                    encoder_inputs,
+                    decoder_inputs,
+                    target_weights,
+                    bucket_id,
+                    True
+                )
+                # This is a greedy decoder - outputs are just argmaxes of output_logits.
+                # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+                outputs = [
+                    int(np.argmax(logit, axis=1))
+                    for logit in output_logits
+                ]
+                # If there is an EOS symbol in outputs, cut them at that point.
+                if data_utils._EOS in outputs:
+                    outputs = outputs[:outputs.index(data_utils._EOS)]
+                gold_outputs = data_utils.sentence_to_token_ids(
+                    tf.compat.as_bytes(dec_line),
+                    dec_vocab
+                )
+                results.append(int(outputs == gold_outputs))
+    in_model.batch_size = original_batch_size
+    return sum(results) / float(len(results))
 
 
 def self_test():
@@ -450,6 +455,9 @@ def self_test():
 
 
 def main(_):
+    print('Running with the following flags:')
+    print(FLAGS.__dict__['__flags__'])
+
     if FLAGS.self_test:
         self_test()
     elif FLAGS.decode:

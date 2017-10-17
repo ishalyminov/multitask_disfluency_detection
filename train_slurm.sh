@@ -18,8 +18,7 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --train_dir ckpt \
   --from_train_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-trn.txt/encoder.txt \
   --to_train_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-trn.txt/decoder.txt \
-  --from_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/encoder.txt \                       
+  --from_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/encoder.txt \
   --to_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/decoder.txt
 
-# exit
 exit 0
