@@ -44,20 +44,35 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'tensorflow_models'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'tensorflow_models', 'tutorials', 'rnn', 'translate'))
+sys.path.append(os.path.join(os.path.dirname(__file__),
+                             'tensorflow_models',
+                             'tutorials',
+                             'rnn',
+                             'translate'
+))
 
-from tutorials.rnn.translate import data_utils, seq2seq_model
+from tutorials.rnn.translate import data_utils
+from tutorials.rnn.translate import copy_seq2seq_model
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
-tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99,
+tf.app.flags.DEFINE_float("learning_rate_decay_factor",
+                          0.99,
                           "Learning rate decays by this much.")
-tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
+tf.app.flags.DEFINE_float("max_gradient_norm",
+                          5.0,
                           "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 64,
+tf.app.flags.DEFINE_integer("batch_size",
+                            64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("size", 1024, "Size of each model layer.")
-tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("from_vocab_size", 40000, "English vocabulary size.")
+tf.app.flags.DEFINE_integer("size",
+                            1024,
+                            "Size of each model layer.")
+tf.app.flags.DEFINE_integer("num_layers",
+                            3,
+                            "Number of layers in the model.")
+tf.app.flags.DEFINE_integer("from_vocab_size",
+                            40000,
+                            "English vocabulary size.")
 tf.app.flags.DEFINE_integer("to_vocab_size", 40000, "French vocabulary size.")
 tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
@@ -65,26 +80,36 @@ tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("from_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_dev_data", None, "Training data.")
-tf.app.flags.DEFINE_integer("max_train_data_size", 0,
+tf.app.flags.DEFINE_integer("max_train_data_size",
+                            0,
                             "Limit on the size of training data (0: no limit).")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
+tf.app.flags.DEFINE_integer("steps_per_checkpoint",
+                            200,
                             "How many training steps to do per checkpoint.")
-tf.app.flags.DEFINE_boolean("decode", False,
+tf.app.flags.DEFINE_integer("input_sequence_length",
+                            100,
+                            "The length encoder inputs are padded to")
+tf.app.flags.DEFINE_boolean("decode",
+                            False,
                             "Set to True for interactive decoding.")
-tf.app.flags.DEFINE_boolean("evaluate", False,
+tf.app.flags.DEFINE_boolean("evaluate",
+                            False,
                             "Set to True for evaluation.")
-tf.app.flags.DEFINE_boolean("train", False,
+tf.app.flags.DEFINE_boolean("train",
+                            False,
                             "Set to True for training.")
-tf.app.flags.DEFINE_boolean("self_test", False,
+tf.app.flags.DEFINE_boolean("self_test",
+                            False,
                             "Run a self-test if this is set to True.")
-tf.app.flags.DEFINE_boolean("use_fp16", False,
+tf.app.flags.DEFINE_boolean("use_fp16",
+                            False,
                             "Train using fp16 instead of fp32.")
 
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
-_buckets = [(120, 120)]
+_buckets = [(FLAGS.input_sequence_length, FLAGS.input_sequence_length)]
 
 
 def read_data(source_path, target_path, max_size=None):
@@ -128,7 +153,7 @@ def read_data(source_path, target_path, max_size=None):
 def create_model(session, forward_only):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-    model = seq2seq_model.Seq2SeqModel(
+    model = copy_seq2seq_model.CopySeq2SeqModel(
             FLAGS.from_vocab_size,
             FLAGS.to_vocab_size,
             _buckets,
@@ -456,7 +481,7 @@ def self_test():
 
 def main(_):
     print('Running with the following flags:')
-    print(FLAGS.__dict__['__flags__'])
+    print(FLAGS.__dict__['__flags'])
 
     if FLAGS.self_test:
         self_test()
