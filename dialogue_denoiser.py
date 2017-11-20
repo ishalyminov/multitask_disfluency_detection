@@ -384,6 +384,8 @@ def eval_model(in_session, in_model):
                     outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
                 else:
                     outputs_dereferenced.append(decoder_output)
+            print("Gold: ", ' '.join(map(str, decoder_inputs)))
+            print("Pred: ", ' '.join(map(str, outputs_dereferenced)))
             results.append(int(outputs_dereferenced == decoder_inputs))
     in_model.batch_size = original_batch_size
     return sum(results) / float(len(results))
