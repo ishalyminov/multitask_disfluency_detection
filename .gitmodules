@@ -1,3 +1,0 @@
-[submodule "tensorflow_models"]
-	path = tensorflow_models
-	url = https://github.com/ishalyminov/models.git 
