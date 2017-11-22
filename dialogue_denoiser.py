@@ -71,7 +71,8 @@ tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False,
                             "Train using fp16 instead of fp32.")
-
+tf.app.flags.DEFINE_boolean("force_make_data", False,
+                            "Create datasets even if corresponding files exist")
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
@@ -79,42 +80,53 @@ FLAGS = tf.app.flags.FLAGS
 _buckets = [(40, 50)]
 
 
-def read_data(source_path, target_path, max_size=None):
-  """Read data from source and target files and put into buckets.
+def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
+    """Read data from source and target files and put into buckets.
 
-  Args:
-    source_path: path to the files with token-ids for the source language.
-    target_path: path to the file with token-ids for the target language;
-      it must be aligned with the source file: n-th line contains the desired
-      output for n-th line from the source_path.
-    max_size: maximum number of lines to read, all other will be ignored;
-      if 0 or None, data files will be read completely (no limit).
+    Args:
+        source_path: path to the files with token-ids for the source language.
+        target_path: path to the file with token-ids for the target language;
+            it must be aligned with the source file: n-th line contains the desired
+            output for n-th line from the source_path.
+        max_size: maximum number of lines to read, all other will be ignored;
+            if 0 or None, data files will be read completely (no limit).
 
-  Returns:
-    data_set: a list of length len(_buckets); data_set[n] contains a list of
-      (source, target) pairs read from the provided data files that fit
-      into the n-th bucket, i.e., such that len(source) < _buckets[n][0] and
-      len(target) < _buckets[n][1]; source and target are lists of token-ids.
-  """
-  data_set = [[] for _ in _buckets]
-  with tf.gfile.GFile(source_path, mode="r") as source_file:
-    with tf.gfile.GFile(target_path, mode="r") as target_file:
-      source, target = source_file.readline(), target_file.readline()
-      counter = 0
-      while source and target and (not max_size or counter < max_size):
-        counter += 1
-        if counter % 100000 == 0:
-          print("  reading data line %d" % counter)
-          sys.stdout.flush()
-        source_ids = [int(x) for x in source.split()]
-        target_ids = [int(x) for x in target.split()]
-        target_ids.append(data_utils.EOS_ID)
-        for bucket_id, (source_size, target_size) in enumerate(_buckets):
-          if len(source_ids) < source_size and len(target_ids) < target_size:
-            data_set[bucket_id].append([source_ids, target_ids])
-            break
-        source, target = source_file.readline(), target_file.readline()
-  return data_set
+    Returns:
+        data_set: a list of length len(_buckets); data_set[n] contains a list of
+            (source, target) pairs read from the provided data files that fit
+            into the n-th bucket, i.e., such that len(source) < _buckets[n][0] and
+            len(target) < _buckets[n][1]; source and target are lists of token-ids.
+    """
+    data_set = [[] for _ in _buckets]
+    with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file:
+        with tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file:
+            with tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
+                encoder_input, decoder_input, decoder_target = (
+                    encoder_input_file.readline(),
+                    decoder_input_file.readline(),
+                    decoder_targets_file.readline()
+                )
+                counter = 0
+                while encoder_input and decoder_input and (not max_size or counter < max_size):
+                    counter += 1
+                    if counter % 100 == 0:
+                        print("  reading data line %d" % counter)
+                        sys.stdout.flush()
+                    encoder_ids = [int(x) for x in encoder_input.split()]
+                    decoder_ids = [int(x) for x in decoder_input.split()]
+                    decoder_ids.append(data_utils.EOS_ID)
+                    decoder_target_ids = [[int(elem) for elem in x.split(';')] for x in decoder_target.split()]
+                    decoder_target_ids.append([data_utils.EOS_ID])
+                    for bucket_id, (source_size, target_size) in enumerate(_buckets):
+                        if len(encoder_ids) < source_size and len(decoder_ids) < target_size:
+                            data_set[bucket_id].append([encoder_ids, decoder_ids, decoder_target_ids])
+                            break
+                    encoder_input, decoder_input, decoder_target = (
+                        encoder_input_file.readline(),
+                        decoder_input_file.readline(),
+                        decoder_targets_file.readline()
+                    )
+    return data_set
 
 
 def create_model(session, forward_only):
@@ -143,32 +155,26 @@ def create_model(session, forward_only):
 
 
 def train():
-  """Train a en->fr translation model using WMT data."""
   from_train = None
   to_train = None
   from_dev = None
   to_dev = None
-  if FLAGS.from_train_data and FLAGS.to_train_data:
-    from_train_data = FLAGS.from_train_data
-    to_train_data = FLAGS.to_train_data
-    from_dev_data = from_train_data
-    to_dev_data = to_train_data
-    if FLAGS.from_dev_data and FLAGS.to_dev_data:
-      from_dev_data = FLAGS.from_dev_data
-      to_dev_data = FLAGS.to_dev_data
-    from_train, to_train, from_dev, to_dev, _, _ = data_utils.prepare_data(
-        FLAGS.data_dir,
-        from_train_data,
-        to_train_data,
-        from_dev_data,
-        to_dev_data,
-        FLAGS.from_vocab_size,
-        FLAGS.to_vocab_size)
-  else:
-      # Prepare WMT data.
-      print("Preparing WMT data in %s" % FLAGS.data_dir)
-      from_train, to_train, from_dev, to_dev, _, _ = data_utils.prepare_wmt_data(
-          FLAGS.data_dir, FLAGS.from_vocab_size, FLAGS.to_vocab_size)
+  from_train_data = FLAGS.from_train_data
+  to_train_data = FLAGS.to_train_data
+  from_dev_data = from_train_data
+  to_dev_data = to_train_data
+  from_dev_data = FLAGS.from_dev_data
+  to_dev_data = FLAGS.to_dev_data
+  from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = data_utils.prepare_data(
+      FLAGS.data_dir,
+      from_train_data,
+      to_train_data,
+      from_dev_data,
+      to_dev_data,
+      FLAGS.from_vocab_size,
+      FLAGS.to_vocab_size,
+      copy_tokens_number = _buckets[0][1],
+      force=FLAGS.force_make_data)
 
   with tf.Session() as sess:
     # Create model.
@@ -178,8 +184,8 @@ def train():
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)."
            % FLAGS.max_train_data_size)
-    dev_set = read_data(from_dev, to_dev)
-    train_set = read_data(from_train, to_train, FLAGS.max_train_data_size)
+    dev_set = read_data(from_dev, to_dev, targets_dev)
+    train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
     train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
     train_total_size = float(sum(train_bucket_sizes))
 
