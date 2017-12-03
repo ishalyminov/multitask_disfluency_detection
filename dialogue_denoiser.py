@@ -43,7 +43,6 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from copy_seq2seq import data_utils, seq2seq_model
 
-
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
@@ -136,7 +135,8 @@ def create_model(session, forward_only):
       forward_only=forward_only,
       dtype=dtype)
   ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-  if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+  # TODO: un-False after debugging
+  if False and ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
     model.saver.restore(session, ckpt.model_checkpoint_path)
   else:
@@ -199,10 +199,15 @@ def train():
 
       # Get a batch and make a step.
       start_time = time.time()
-      encoder_inputs, decoder_inputs, decoder_targets, target_weights = model.get_batch(
-          train_set, bucket_id)
-      _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs, decoder_targets,
-                                   target_weights, bucket_id, False)
+      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(train_set, bucket_id)
+      _, step_loss, _ = model.step(sess,
+                                   encoder_inputs,
+                                   decoder_inputs,
+                                   decoder_targets,
+                                   decoder_target_1hots,
+                                   target_weights,
+                                   bucket_id,
+                                   False)
       step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
       loss += step_loss / FLAGS.steps_per_checkpoint
       current_step += 1
@@ -227,11 +232,12 @@ def train():
           if len(dev_set[bucket_id]) == 0:
             print("  eval: empty bucket %d" % (bucket_id))
             continue
-          encoder_inputs, decoder_inputs, decoder_targets, target_weights = model.get_batch(dev_set, bucket_id)
+          encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(dev_set, bucket_id)
           _, eval_loss, _ = model.step(sess,
                                        encoder_inputs,
                                        decoder_inputs,
                                        decoder_targets,
+                                       decoder_target_1hots,
                                        target_weights,
                                        bucket_id,
                                        True)
@@ -319,3 +325,4 @@ def main(_):
 
 if __name__ == "__main__":
   tf.app.run()
+
