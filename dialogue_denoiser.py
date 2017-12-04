@@ -146,14 +146,8 @@ def create_model(session, forward_only):
 
 
 def train():
-  from_train = None
-  to_train = None
-  from_dev = None
-  to_dev = None
   from_train_data = FLAGS.from_train_data
   to_train_data = FLAGS.to_train_data
-  from_dev_data = from_train_data
-  to_dev_data = to_train_data
   from_dev_data = FLAGS.from_dev_data
   to_dev_data = FLAGS.to_dev_data
   from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = data_utils.prepare_data(
@@ -241,10 +235,59 @@ def train():
                                        target_weights,
                                        bucket_id,
                                        True)
-          eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float(
-              "inf")
+          eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
           print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
         sys.stdout.flush()
+
+
+def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
+    original_batch_size = in_model.batch_size
+    in_model.batch_size = 1  # We decode one sentence at a time - it's easier for now (something to fix later)
+
+    # Load vocabularies.
+    enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
+    dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
+    enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
+    dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+
+    from_dev_data = FLAGS.from_dev_data
+    to_dev_data = FLAGS.to_dev_data
+    dataset = read_data(from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path, max_size=None)
+    results = []
+    for bucket_id in xrange(len(dataset)):
+        bucket_data = dataset[bucket_id]
+        for encoder_inputs, decoder_inputs, decoder_targets in bucket_data:
+            # Get a 1-element batch to feed the sentence to the model.
+            enc_in, dec_in, dec_tgt, target_weights = in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
+                                                                          bucket_id)
+            # Get output logits for the sentence.
+            _, _, output_logits = in_model.step(in_session,
+                                                enc_in,
+                                                dec_in,
+                                                dec_tgt,
+                                                target_weights,
+                                                bucket_id,
+                                                True)
+            # This is a greedy decoder - outputs are just argmaxes of output_logits.
+            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+            outputs = [
+                int(np.argmax(logit, axis=1))
+                for logit in output_logits
+            ]
+            # If there is an EOS symbol in outputs, cut them at that point.
+            if data_utils._EOS in outputs:
+                outputs = outputs[:outputs.index(data_utils._EOS)]
+            outputs_dereferenced = []
+            for decoder_output in outputs:
+                if len(data_utils._START_VOCAB) <= decoder_output:
+                    outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
+                else:
+                    outputs_dereferenced.append(decoder_output)
+            print("Gold: ", ' '.join(map(str, decoder_inputs)))
+            print("Pred: ", ' '.join(map(str, outputs_dereferenced)))
+            results.append(int(outputs_dereferenced == decoder_inputs))
+    in_model.batch_size = original_batch_size
+    return sum(results) / float(len(results))
 
 
 def decode():
@@ -296,33 +339,39 @@ def decode():
 
 
 def self_test():
-  """Test the translation model."""
-  with tf.Session() as sess:
-    print("Self-test for neural translation model.")
-    # Create model with vocabularies of 10, 2 small buckets, 2 layers of 32.
-    model = seq2seq_model.Seq2SeqModel(10, 10, [(3, 3), (6, 6)], 32, 2,
-                                       5.0, 32, 0.3, 0.99, num_samples=8)
-    sess.run(tf.global_variables_initializer())
+    """Test the translation model."""
+    with tf.Session() as sess:
+        print("Self-test for neural translation model.")
+        # Create model with vocabularies of 10, 2 small buckets, 2 layers of 32.
+        model = seq2seq_model.Seq2SeqModel(10,
+                                           10,
+                                           [(3, 3), (6, 6)],
+                                           32,
+                                           2,
+                                           5.0,
+                                           32,
+                                           0.3,
+                                           0.99,
+                                           num_samples=8)
+        sess.run(tf.global_variables_initializer())
 
-    # Fake data set for both the (3, 3) and (6, 6) bucket.
-    data_set = ([([1, 1], [2, 2]), ([3, 3], [4]), ([5], [6])],
-                [([1, 1, 1, 1, 1], [2, 2, 2, 2, 2]), ([3, 3, 3], [5, 6])])
-    for _ in xrange(5):  # Train the fake model for 5 steps.
-      bucket_id = random.choice([0, 1])
-      encoder_inputs, decoder_inputs, target_weights = model.get_batch(
-          data_set, bucket_id)
-      model.step(sess, encoder_inputs, decoder_inputs, target_weights,
-                 bucket_id, False)
+        # Fake data set for both the (3, 3) and (6, 6) bucket.
+        data_set = ([([1, 1], [2, 2]), ([3, 3], [4]), ([5], [6])],
+                    [([1, 1, 1, 1, 1], [2, 2, 2, 2, 2]), ([3, 3, 3], [5, 6])])
+        for _ in xrange(5):  # Train the fake model for 5 steps.
+            bucket_id = random.choice([0, 1])
+            encoder_inputs, decoder_inputs, target_weights = model.get_batch(data_set, bucket_id)
+            model.step(sess, encoder_inputs, decoder_inputs, target_weights, bucket_id, False)
 
 
 def main(_):
-  if FLAGS.self_test:
-    self_test()
-  elif FLAGS.decode:
-    decode()
-  else:
-    train()
+    if FLAGS.self_test:
+        self_test()
+    elif FLAGS.decode:
+        decode()
+    else:
+        train()
+
 
 if __name__ == "__main__":
-  tf.app.run()
-
+    tf.app.run()
