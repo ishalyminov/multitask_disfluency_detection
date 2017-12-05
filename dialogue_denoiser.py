@@ -46,11 +46,11 @@ from copy_seq2seq import data_utils, seq2seq_model
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 8, "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("size", 32, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("batch_size", 2, "Batch size to use during training.") # 8
+tf.app.flags.DEFINE_integer("size", 4, "Size of each model layer.") # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.")
-tf.app.flags.DEFINE_integer("to_vocab_size", 100, "French vocabulary size.")
+tf.app.flags.DEFINE_integer("from_vocab_size", 50, "English vocabulary size.") # 100
+tf.app.flags.DEFINE_integer("to_vocab_size", 50, "French vocabulary size.") # 100
 tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
@@ -58,7 +58,7 @@ tf.app.flags.DEFINE_string("to_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("from_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_integer("max_train_data_size", 0, "Limit on the size of training data (0: no limit).")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200, "How many training steps to do per checkpoint.")
+tf.app.flags.DEFINE_integer("steps_per_checkpoint", 20, "How many training steps to do per checkpoint.") # 200
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False, "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
@@ -124,7 +124,7 @@ def create_model(session, forward_only):
   dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
   model = seq2seq_model.Seq2SeqModel(
       FLAGS.from_vocab_size,
-      FLAGS.to_vocab_size,
+      FLAGS.to_vocab_size + _buckets[0][1],
       _buckets,
       FLAGS.size,
       FLAGS.num_layers,
@@ -158,7 +158,7 @@ def train():
       to_dev_data,
       FLAGS.from_vocab_size,
       FLAGS.to_vocab_size,
-      copy_tokens_number = _buckets[0][1],
+      copy_tokens_number=_buckets[0][1],
       force=FLAGS.force_make_data)
 
   with tf.Session() as sess:
@@ -210,9 +210,9 @@ def train():
       if current_step % FLAGS.steps_per_checkpoint == 0:
         # Print statistics for the previous epoch.
         perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
-        print ("global step %d learning rate %.4f step-time %.2f perplexity "
+        print ("global step %d learning rate %.4f loss %.2f perplexity "
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                         step_time, perplexity))
+                         loss, perplexity))
         # Decrease learning rate if no improvement was seen over last 3 times.
         if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
           sess.run(model.learning_rate_decay_op)
@@ -236,7 +236,8 @@ def train():
                                        bucket_id,
                                        True)
           eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
-          print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
+          print("  eval: bucket %d loss %.2f perplexity %.2f" % (bucket_id, eval_loss, eval_ppx))
+          print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
         sys.stdout.flush()
 
 
@@ -258,13 +259,14 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
         bucket_data = dataset[bucket_id]
         for encoder_inputs, decoder_inputs, decoder_targets in bucket_data:
             # Get a 1-element batch to feed the sentence to the model.
-            enc_in, dec_in, dec_tgt, target_weights = in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
-                                                                          bucket_id)
+            enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
+                                                                                        bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = in_model.step(in_session,
                                                 enc_in,
                                                 dec_in,
                                                 dec_tgt,
+                                                dec_tgt_1hots,
                                                 target_weights,
                                                 bucket_id,
                                                 True)
@@ -278,14 +280,14 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
             if data_utils._EOS in outputs:
                 outputs = outputs[:outputs.index(data_utils._EOS)]
             outputs_dereferenced = []
-            for decoder_output in outputs:
-                if len(data_utils._START_VOCAB) <= decoder_output:
-                    outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
-                else:
-                    outputs_dereferenced.append(decoder_output)
+            #for decoder_output in outputs:
+            #    if len(data_utils._START_VOCAB) <= decoder_output:
+            #        outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
+            #    else:
+            #        outputs_dereferenced.append(decoder_output)
             print("Gold: ", ' '.join(map(str, decoder_inputs)))
-            print("Pred: ", ' '.join(map(str, outputs_dereferenced)))
-            results.append(int(outputs_dereferenced == decoder_inputs))
+            print("Pred: ", ' '.join(map(str, outputs)))
+            results.append(int(outputs == decoder_inputs))
     in_model.batch_size = original_batch_size
     return sum(results) / float(len(results))
 
@@ -375,3 +377,4 @@ def main(_):
 
 if __name__ == "__main__":
     tf.app.run()
+
