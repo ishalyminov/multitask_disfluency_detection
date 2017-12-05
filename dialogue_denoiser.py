@@ -43,14 +43,14 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from copy_seq2seq import data_utils, seq2seq_model
 
-tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 2, "Batch size to use during training.") # 8
-tf.app.flags.DEFINE_integer("size", 4, "Size of each model layer.") # 32
+tf.app.flags.DEFINE_integer("batch_size", 8, "Batch size to use during training.") # 8
+tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.") # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("from_vocab_size", 50, "English vocabulary size.") # 100
-tf.app.flags.DEFINE_integer("to_vocab_size", 50, "French vocabulary size.") # 100
+tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.") # 100
+tf.app.flags.DEFINE_integer("to_vocab_size", 100, "French vocabulary size.") # 100
 tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
@@ -58,7 +58,7 @@ tf.app.flags.DEFINE_string("to_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("from_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_integer("max_train_data_size", 0, "Limit on the size of training data (0: no limit).")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 20, "How many training steps to do per checkpoint.") # 200
+tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200, "How many training steps to do per checkpoint.") # 200
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False, "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
@@ -136,7 +136,7 @@ def create_model(session, forward_only):
       dtype=dtype)
   ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
   # TODO: un-False after debugging
-  if False and ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+  if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
     model.saver.restore(session, ckpt.model_checkpoint_path)
   else:
@@ -300,9 +300,9 @@ def decode():
 
     # Load vocabularies.
     en_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab%d.from" % FLAGS.from_vocab_size)
+                                 "vocab.from")
     fr_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab%d.to" % FLAGS.to_vocab_size)
+                                 "vocab.to")
     en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
     _, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
 
@@ -323,10 +323,10 @@ def decode():
         logging.warning("Sentence truncated: %s", sentence)
 
       # Get a 1-element batch to feed the sentence to the model.
-      encoder_inputs, decoder_inputs, target_weights = model.get_batch(
-          {bucket_id: [(token_ids, [])]}, bucket_id)
+      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch({bucket_id: [(token_ids, [], [])]},
+                                                                       bucket_id)
       # Get output logits for the sentence.
-      _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs,
+      _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots,
                                        target_weights, bucket_id, True)
       # This is a greedy decoder - outputs are just argmaxes of output_logits.
       outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
