@@ -42,8 +42,7 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
-import data_utils
-import seq2seq_model
+from copy_seq2seq import data_utils, seq2seq_model
 
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
@@ -51,12 +50,12 @@ tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99,
                           "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 64,
+tf.app.flags.DEFINE_integer("batch_size", 2,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("size", 1024, "Size of each model layer.")
-tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("from_vocab_size", 40000, "English vocabulary size.")
-tf.app.flags.DEFINE_integer("to_vocab_size", 40000, "French vocabulary size.")
+tf.app.flags.DEFINE_integer("size", 256, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
+tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.")
+tf.app.flags.DEFINE_integer("to_vocab_size", 100, "French vocabulary size.")
 tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
@@ -78,7 +77,7 @@ FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
-_buckets = [(5, 10), (10, 15), (20, 25), (40, 50)]
+_buckets = [(40, 50)]
 
 
 def read_data(source_path, target_path, max_size=None):
@@ -239,7 +238,59 @@ def train():
           eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float(
               "inf")
           print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
+        print(eval_model(sess, model, from_dev, to_dev))
         sys.stdout.flush()
+
+
+def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path):
+    original_batch_size = in_model.batch_size
+    in_model.batch_size = 1  # We decode one sentence at a time - it's easier for now (something to fix later)
+
+    # Load vocabularies.
+    enc_vocab_path = os.path.join(FLAGS.data_dir,
+                                 "vocab%d.from" % FLAGS.from_vocab_size)
+    dec_vocab_path = os.path.join(FLAGS.data_dir,
+                                 "vocab%d.to" % FLAGS.to_vocab_size)
+    enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
+    dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+
+    from_dev_data = FLAGS.from_dev_data
+    to_dev_data = FLAGS.to_dev_data
+    dataset = read_data(from_dev_ids_path, to_dev_ids_path, max_size=None)
+    results = []
+    for bucket_id in xrange(len(dataset)):
+        bucket_data = dataset[bucket_id]
+        for encoder_inputs, decoder_inputs in bucket_data:
+            # Get a 1-element batch to feed the sentence to the model.
+            enc_in, dec_in, target_weights = in_model.get_batch({bucket_id: [(encoder_inputs, [])]},
+                                                                                        bucket_id)
+            # Get output logits for the sentence.
+            _, _, output_logits = in_model.step(in_session,
+                                                enc_in,
+                                                dec_in,
+                                                target_weights,
+                                                bucket_id,
+                                                True)
+            # This is a greedy decoder - outputs are just argmaxes of output_logits.
+            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+            outputs = [
+                int(np.argmax(logit, axis=1))
+                for logit in output_logits
+            ]
+            # If there is an EOS symbol in outputs, cut them at that point.
+            if data_utils._EOS in outputs:
+                outputs = outputs[:outputs.index(data_utils._EOS)]
+            outputs_dereferenced = []
+            #for decoder_output in outputs:
+            #    if len(data_utils._START_VOCAB) <= decoder_output:
+            #        outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
+            #    else:
+            #        outputs_dereferenced.append(decoder_output)
+            print("Gold: ", ' '.join(map(str, decoder_inputs)))
+            print("Pred: ", ' '.join(map(str, outputs)))
+            results.append(int(outputs == decoder_inputs))
+    in_model.batch_size = original_batch_size
+    return sum(results) / float(len(results))
 
 
 def decode():
