@@ -237,7 +237,7 @@ def train():
                                        True)
           eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
           print("  eval: bucket %d loss %.2f perplexity %.2f" % (bucket_id, eval_loss, eval_ppx))
-          print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
+          # print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
         sys.stdout.flush()
 
 
