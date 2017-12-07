@@ -46,11 +46,11 @@ from copy_seq2seq import data_utils, seq2seq_model
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 8, "Batch size to use during training.") # 8
-tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.") # 32
+tf.app.flags.DEFINE_integer("batch_size", 8, "Batch size to use during training.")  # 8
+tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.")  # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.") # 100
-tf.app.flags.DEFINE_integer("to_vocab_size", 100, "French vocabulary size.") # 100
+tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.")  # 100
+tf.app.flags.DEFINE_integer("to_vocab_size", 100, "French vocabulary size.")  # 100
 tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
@@ -119,30 +119,33 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
     return data_set
 
 
-def create_model(session, forward_only):
-  """Create translation model and initialize or load parameters in session."""
-  dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-  model = seq2seq_model.Seq2SeqModel(
-      FLAGS.from_vocab_size,
-      FLAGS.to_vocab_size + _buckets[0][1],
-      _buckets,
-      FLAGS.size,
-      FLAGS.num_layers,
-      FLAGS.max_gradient_norm,
-      FLAGS.batch_size,
-      FLAGS.learning_rate,
-      FLAGS.learning_rate_decay_factor,
-      forward_only=forward_only,
-      dtype=dtype)
-  ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-  # TODO: un-False after debugging
-  if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-    model.saver.restore(session, ckpt.model_checkpoint_path)
-  else:
-    print("Created model with fresh parameters.")
-    session.run(tf.global_variables_initializer())
-  return model
+def create_model(session, forward_only, force_create_fresh=False):
+    """Create translation model and initialize or load parameters in session."""
+    dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
+    model = seq2seq_model.Seq2SeqModel(
+        FLAGS.from_vocab_size,
+        FLAGS.to_vocab_size,
+        _buckets,
+        FLAGS.size,
+        FLAGS.num_layers,
+        FLAGS.max_gradient_norm,
+        FLAGS.batch_size,
+        FLAGS.learning_rate,
+        FLAGS.learning_rate_decay_factor,
+        forward_only=forward_only,
+        dtype=dtype)
+    if force_create_fresh:
+        if os.path.exists(FLAGS.train_dir):
+            shutil.rmtree(FLAGS.train_dir)
+            os.makedirs(FLAGS.train_dir)
+    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+    if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+        model.saver.restore(session, ckpt.model_checkpoint_path)
+    else:
+        print("Created model with fresh parameters.")
+        session.run(tf.global_variables_initializer())
+    return model
 
 
 def train():
@@ -164,11 +167,10 @@ def train():
   with tf.Session() as sess:
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
-    model = create_model(sess, False)
+    model = create_model(sess, False, force_create_fresh=FLAGS.force_make_data)
 
     # Read data into buckets and compute their sizes.
-    print ("Reading development and training data (limit: %d)."
-           % FLAGS.max_train_data_size)
+    print ("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
     dev_set = read_data(from_dev, to_dev, targets_dev)
     train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
     train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
@@ -193,7 +195,8 @@ def train():
 
       # Get a batch and make a step.
       start_time = time.time()
-      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(train_set, bucket_id)
+      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(train_set,
+                                                                                                              bucket_id)
       _, step_loss, _ = model.step(sess,
                                    encoder_inputs,
                                    decoder_inputs,
@@ -299,10 +302,8 @@ def decode():
     model.batch_size = 1  # We decode one sentence at a time.
 
     # Load vocabularies.
-    en_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab.from")
-    fr_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab.to")
+    en_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
+    fr_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
     en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
     _, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
 
@@ -377,4 +378,3 @@ def main(_):
 
 if __name__ == "__main__":
     tf.app.run()
-
