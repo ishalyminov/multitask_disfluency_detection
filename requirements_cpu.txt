@@ -1,2 +1,2 @@
 tensorflow==1.4.0
-git+https://github.com/ishalyminov/copy_seq2seq.git
+git+https://github.com/ishalyminov/copy_seq2seq.git@v121217
