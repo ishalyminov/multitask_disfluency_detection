@@ -37,11 +37,12 @@ import random
 import sys
 import time
 import logging
+import shutil
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
-from copy_seq2seq import data_utils, seq2seq_model
+from copy_seq2seq import data_utils, seq2seq_model, seq2seq
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
@@ -67,7 +68,7 @@ FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
-_buckets = [(40, 50)]
+_buckets = [(20, 30)]
 
 
 def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
@@ -91,11 +92,9 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
     with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file:
         with tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file:
             with tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
-                encoder_input, decoder_input, decoder_target = (
-                    encoder_input_file.readline(),
-                    decoder_input_file.readline(),
-                    decoder_targets_file.readline()
-                )
+                encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
+                                                                decoder_input_file.readline(),
+                                                                decoder_targets_file.readline())
                 counter = 0
                 while encoder_input and decoder_input and (not max_size or counter < max_size):
                     counter += 1
@@ -111,20 +110,18 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
                         if len(encoder_ids) < source_size and len(decoder_ids) < target_size:
                             data_set[bucket_id].append([encoder_ids, decoder_ids, decoder_target_ids])
                             break
-                    encoder_input, decoder_input, decoder_target = (
-                        encoder_input_file.readline(),
-                        decoder_input_file.readline(),
-                        decoder_targets_file.readline()
-                    )
+                    encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
+                                                                    decoder_input_file.readline(),
+                                                                    decoder_targets_file.readline())
     return data_set
 
 
-def create_model(session, forward_only, force_create_fresh=False):
+def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_create_fresh=False):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
     model = seq2seq_model.Seq2SeqModel(
-        FLAGS.from_vocab_size,
-        FLAGS.to_vocab_size,
+        from_vocab_size,
+        to_vocab_size,
         _buckets,
         FLAGS.size,
         FLAGS.num_layers,
@@ -164,10 +161,14 @@ def train():
       copy_tokens_number=_buckets[0][1],
       force=FLAGS.force_make_data)
 
+  enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
+  dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
+  enc_vocab, rev_enc_vocab = data_utils.initialize_vocabulary(enc_vocab_path)
+  dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
   with tf.Session() as sess:
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
-    model = create_model(sess, False, force_create_fresh=FLAGS.force_make_data)
+    model = create_model(sess, len(enc_vocab), len(dec_vocab), False, force_create_fresh=FLAGS.force_make_data)
 
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
@@ -297,15 +298,15 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
 
 def decode():
   with tf.Session() as sess:
-    # Create model and load parameters.
-    model = create_model(sess, True)
-    model.batch_size = 1  # We decode one sentence at a time.
-
     # Load vocabularies.
     en_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
     fr_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
     en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
-    _, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+    fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+
+    # Create model and load parameters.
+    model = create_model(sess, len(en_vocab), len(fr_vocab), True)
+    model.batch_size = 1  # We decode one sentence at a time.
 
     # Decode from standard input.
     sys.stdout.write("> ")
@@ -327,15 +328,29 @@ def decode():
       encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch({bucket_id: [(token_ids, [], [])]},
                                                                        bucket_id)
       # Get output logits for the sentence.
-      _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots,
-                                       target_weights, bucket_id, True)
+      _, _, output_logits_and_attentions = model.step(sess,
+                                                      encoder_inputs, 
+                                                      decoder_inputs,
+                                                      decoder_targets,
+                                                      decoder_target_1hots,
+                                                      target_weights,
+                                                      bucket_id,
+                                                      True)
+      encoder_input_tensors = [tf.convert_to_tensor(enc_input) for enc_input in encoder_inputs]
+      output_tensors = [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+                        for logit, attention_dist in output_logits_and_attentions]
+      outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
       # This is a greedy decoder - outputs are just argmaxes of output_logits.
-      outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+      
+      # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
       # If there is an EOS symbol in outputs, cut them at that point.
       if data_utils.EOS_ID in outputs:
         outputs = outputs[:outputs.index(data_utils.EOS_ID)]
       # Print out French sentence corresponding to outputs.
-      print(" ".join([tf.compat.as_str(rev_fr_vocab[output]) for output in outputs]))
+      tokens = []
+      for output in outputs:
+          tokens.append(tf.compat.as_str(rev_fr_vocab[output]))
+      print(" ".join(tokens))
       print("> ", end="")
       sys.stdout.flush()
       sentence = sys.stdin.readline()
@@ -378,3 +393,4 @@ def main(_):
 
 if __name__ == "__main__":
     tf.app.run()
+
