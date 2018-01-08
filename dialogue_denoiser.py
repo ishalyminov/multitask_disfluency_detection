@@ -58,12 +58,19 @@ tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("from_dev_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_dev_data", None, "Training data.")
-tf.app.flags.DEFINE_integer("max_train_data_size", 0, "Limit on the size of training data (0: no limit).")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200, "How many training steps to do per checkpoint.") # 200
+tf.app.flags.DEFINE_integer("max_train_data_size",
+                            0,
+                            "Limit on the size of training data (0: no limit).")
+tf.app.flags.DEFINE_integer("steps_per_checkpoint",
+                            200,
+                            "How many training steps to do per checkpoint.")  # 200
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False, "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
-tf.app.flags.DEFINE_boolean("force_make_data", False, "Create datasets even if corresponding files exist")
+tf.app.flags.DEFINE_boolean("force_make_data",
+                            False,
+                            "Create datasets even if corresponding files exist")
+
 FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
@@ -89,30 +96,32 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
             len(target) < _buckets[n][1]; source and target are lists of token-ids.
     """
     data_set = [[] for _ in _buckets]
-    with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file:
-        with tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file:
-            with tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
-                encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
-                                                                decoder_input_file.readline(),
-                                                                decoder_targets_file.readline())
-                counter = 0
-                while encoder_input and decoder_input and (not max_size or counter < max_size):
-                    counter += 1
-                    if counter % 100 == 0:
-                        print("  reading data line %d" % counter)
-                        sys.stdout.flush()
-                    encoder_ids = [int(x) for x in encoder_input.split()]
-                    decoder_ids = [int(x) for x in decoder_input.split()]
-                    decoder_ids.append(data_utils.EOS_ID)
-                    decoder_target_ids = [[int(elem) for elem in x.split(';')] for x in decoder_target.split()]
-                    decoder_target_ids.append([data_utils.EOS_ID])
-                    for bucket_id, (source_size, target_size) in enumerate(_buckets):
-                        if len(encoder_ids) < source_size and len(decoder_ids) < target_size:
-                            data_set[bucket_id].append([encoder_ids, decoder_ids, decoder_target_ids])
-                            break
-                    encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
-                                                                    decoder_input_file.readline(),
-                                                                    decoder_targets_file.readline())
+    with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file, \
+         tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file, \
+         tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
+        encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
+                                                        decoder_input_file.readline(),
+                                                        decoder_targets_file.readline())
+        counter = 0
+        while encoder_input and decoder_input and (not max_size or counter < max_size):
+            counter += 1
+            if counter % 100 == 0:
+                print("  reading data line %d" % counter)
+                sys.stdout.flush()
+            encoder_ids = [int(x) for x in encoder_input.split()]
+            decoder_ids = [int(x) for x in decoder_input.split()]
+            decoder_ids.append(data_utils.EOS_ID)
+            decoder_target_ids = [
+                [int(elem) for elem in x.split(';')] for x in decoder_target.split()
+            ]
+            decoder_target_ids.append([data_utils.EOS_ID])
+            for bucket_id, (source_size, target_size) in enumerate(_buckets):
+                if len(encoder_ids) < source_size and len(decoder_ids) < target_size:
+                    data_set[bucket_id].append([encoder_ids, decoder_ids, decoder_target_ids])
+                    break
+            encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
+                                                            decoder_input_file.readline(),
+                                                            decoder_targets_file.readline())
     return data_set
 
 
@@ -150,16 +159,16 @@ def train():
   to_train_data = FLAGS.to_train_data
   from_dev_data = FLAGS.from_dev_data
   to_dev_data = FLAGS.to_dev_data
-  from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = data_utils.prepare_data(
-      FLAGS.data_dir,
-      from_train_data,
-      to_train_data,
-      from_dev_data,
-      to_dev_data,
-      FLAGS.from_vocab_size,
-      FLAGS.to_vocab_size,
-      copy_tokens_number=_buckets[0][1],
-      force=FLAGS.force_make_data)
+  from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = \
+      data_utils.prepare_data(FLAGS.data_dir,
+                              from_train_data,
+                              to_train_data,
+                              from_dev_data,
+                              to_dev_data,
+                              FLAGS.from_vocab_size,
+                              FLAGS.to_vocab_size,
+                              copy_tokens_number=_buckets[0][1],
+                              force=FLAGS.force_make_data)
 
   enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
   dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
@@ -168,7 +177,11 @@ def train():
   with tf.Session() as sess:
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
-    model = create_model(sess, len(enc_vocab), len(dec_vocab), False, force_create_fresh=FLAGS.force_make_data)
+    model = create_model(sess,
+                         len(enc_vocab),
+                         len(dec_vocab),
+                         False,
+                         force_create_fresh=FLAGS.force_make_data)
 
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
@@ -196,8 +209,8 @@ def train():
 
       # Get a batch and make a step.
       start_time = time.time()
-      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(train_set,
-                                                                                                              bucket_id)
+      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+          model.get_batch(train_set, bucket_id)
       _, step_loss, _ = model.step(sess,
                                    encoder_inputs,
                                    decoder_inputs,
@@ -230,7 +243,8 @@ def train():
           if len(dev_set[bucket_id]) == 0:
             print("  eval: empty bucket %d" % (bucket_id))
             continue
-          encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch(dev_set, bucket_id)
+          encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+              model.get_batch(dev_set, bucket_id)
           _, eval_loss, _ = model.step(sess,
                                        encoder_inputs,
                                        decoder_inputs,
@@ -263,8 +277,9 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
         bucket_data = dataset[bucket_id]
         for encoder_inputs, decoder_inputs, decoder_targets in bucket_data:
             # Get a 1-element batch to feed the sentence to the model.
-            enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
-                                                                                        bucket_id)
+            enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = \
+                in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
+                                   bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = in_model.step(in_session,
                                                 enc_in,
@@ -325,8 +340,8 @@ def decode():
         logging.warning("Sentence truncated: %s", sentence)
 
       # Get a 1-element batch to feed the sentence to the model.
-      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = model.get_batch({bucket_id: [(token_ids, [], [])]},
-                                                                       bucket_id)
+      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+          model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
       # Get output logits for the sentence.
       _, _, output_logits_and_attentions = model.step(sess,
                                                       encoder_inputs, 
@@ -337,8 +352,9 @@ def decode():
                                                       bucket_id,
                                                       True)
       encoder_input_tensors = [tf.convert_to_tensor(enc_input) for enc_input in encoder_inputs]
-      output_tensors = [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-                        for logit, attention_dist in output_logits_and_attentions]
+      output_tensors = \
+          [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+          for logit, attention_dist in output_logits_and_attentions]
       outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
       # This is a greedy decoder - outputs are just argmaxes of output_logits.
       
@@ -393,4 +409,3 @@ def main(_):
 
 if __name__ == "__main__":
     tf.app.run()
-
