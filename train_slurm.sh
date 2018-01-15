@@ -19,5 +19,6 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --to_train_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-trn.txt/decoder.txt \
   --from_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/encoder.txt \
   --to_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/decoder.txt \
+  --combined_vocabulary \
   --force_make_data
 exit 0

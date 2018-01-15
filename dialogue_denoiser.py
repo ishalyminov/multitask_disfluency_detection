@@ -67,6 +67,9 @@ tf.app.flags.DEFINE_integer("steps_per_checkpoint",
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False, "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
+tf.app.flags.DEFINE_boolean("combined_vocabulary",
+                            False,
+                            "Using a combined encoder/decoder vocabulary")
 tf.app.flags.DEFINE_boolean("force_make_data",
                             False,
                             "Create datasets even if corresponding files exist")
@@ -167,6 +170,7 @@ def train():
                                 FLAGS.from_vocab_size,
                                 FLAGS.to_vocab_size,
                                 copy_tokens_number=_buckets[0][1],
+                                combined_vocabulary=FLAGS.combined_vocabulary,
                                 force=FLAGS.force_make_data)
 
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
