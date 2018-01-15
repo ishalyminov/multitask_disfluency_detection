@@ -97,8 +97,8 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
     """
     data_set = [[] for _ in _buckets]
     with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file, \
-         tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file, \
-         tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
+            tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file, \
+            tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
         encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
                                                         decoder_input_file.readline(),
                                                         decoder_targets_file.readline())
@@ -128,18 +128,17 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
 def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_create_fresh=False):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-    model = seq2seq_model.Seq2SeqModel(
-        from_vocab_size,
-        to_vocab_size,
-        _buckets,
-        FLAGS.size,
-        FLAGS.num_layers,
-        FLAGS.max_gradient_norm,
-        FLAGS.batch_size,
-        FLAGS.learning_rate,
-        FLAGS.learning_rate_decay_factor,
-        forward_only=forward_only,
-        dtype=dtype)
+    model = seq2seq_model.Seq2SeqModel(from_vocab_size,
+                                       to_vocab_size,
+                                       _buckets,
+                                       FLAGS.size,
+                                       FLAGS.num_layers,
+                                       FLAGS.max_gradient_norm,
+                                       FLAGS.batch_size,
+                                       FLAGS.learning_rate,
+                                       FLAGS.learning_rate_decay_factor,
+                                       forward_only=forward_only,
+                                       dtype=dtype)
     if force_create_fresh:
         if os.path.exists(FLAGS.train_dir):
             shutil.rmtree(FLAGS.train_dir)
@@ -155,108 +154,109 @@ def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_cr
 
 
 def train():
-  from_train_data = FLAGS.from_train_data
-  to_train_data = FLAGS.to_train_data
-  from_dev_data = FLAGS.from_dev_data
-  to_dev_data = FLAGS.to_dev_data
-  from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = \
-      data_utils.prepare_data(FLAGS.data_dir,
-                              from_train_data,
-                              to_train_data,
-                              from_dev_data,
-                              to_dev_data,
-                              FLAGS.from_vocab_size,
-                              FLAGS.to_vocab_size,
-                              copy_tokens_number=_buckets[0][1],
-                              force=FLAGS.force_make_data)
+    from_train_data = FLAGS.from_train_data
+    to_train_data = FLAGS.to_train_data
+    from_dev_data = FLAGS.from_dev_data
+    to_dev_data = FLAGS.to_dev_data
+    from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = \
+        data_utils.prepare_data(FLAGS.data_dir,
+                                from_train_data,
+                                to_train_data,
+                                from_dev_data,
+                                to_dev_data,
+                                FLAGS.from_vocab_size,
+                                FLAGS.to_vocab_size,
+                                copy_tokens_number=_buckets[0][1],
+                                force=FLAGS.force_make_data)
 
-  enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
-  dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
-  enc_vocab, rev_enc_vocab = data_utils.initialize_vocabulary(enc_vocab_path)
-  dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
-  with tf.Session() as sess:
-    # Create model.
-    print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
-    model = create_model(sess,
-                         len(enc_vocab),
-                         len(dec_vocab),
-                         False,
-                         force_create_fresh=FLAGS.force_make_data)
+    enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
+    dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
+    enc_vocab, rev_enc_vocab = data_utils.initialize_vocabulary(enc_vocab_path)
+    dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+    with tf.Session() as sess:
+        # Create model.
+        print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
+        model = create_model(sess,
+                             len(enc_vocab),
+                             len(dec_vocab),
+                             False,
+                             force_create_fresh=FLAGS.force_make_data)
 
-    # Read data into buckets and compute their sizes.
-    print ("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
-    dev_set = read_data(from_dev, to_dev, targets_dev)
-    train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
-    train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
-    train_total_size = float(sum(train_bucket_sizes))
+        # Read data into buckets and compute their sizes.
+        print("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
+        dev_set = read_data(from_dev, to_dev, targets_dev)
+        train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
+        train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
+        train_total_size = float(sum(train_bucket_sizes))
 
-    # A bucket scale is a list of increasing numbers from 0 to 1 that we'll use
-    # to select a bucket. Length of [scale[i], scale[i+1]] is proportional to
-    # the size if i-th training bucket, as used later.
-    train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size
-                           for i in xrange(len(train_bucket_sizes))]
+        # A bucket scale is a list of increasing numbers from 0 to 1 that we'll use
+        # to select a bucket. Length of [scale[i], scale[i+1]] is proportional to
+        # the size if i-th training bucket, as used later.
+        train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size
+                               for i in xrange(len(train_bucket_sizes))]
 
-    # This is the training loop.
-    step_time, loss = 0.0, 0.0
-    current_step = 0
-    previous_losses = []
-    while True:
-      # Choose a bucket according to data distribution. We pick a random number
-      # in [0, 1] and use the corresponding interval in train_buckets_scale.
-      random_number_01 = np.random.random_sample()
-      bucket_id = min([i for i in xrange(len(train_buckets_scale))
-                       if train_buckets_scale[i] > random_number_01])
-
-      # Get a batch and make a step.
-      start_time = time.time()
-      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
-          model.get_batch(train_set, bucket_id)
-      _, step_loss, _ = model.step(sess,
-                                   encoder_inputs,
-                                   decoder_inputs,
-                                   decoder_targets,
-                                   decoder_target_1hots,
-                                   target_weights,
-                                   bucket_id,
-                                   False)
-      step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
-      loss += step_loss / FLAGS.steps_per_checkpoint
-      current_step += 1
-
-      # Once in a while, we save checkpoint, print statistics, and run evals.
-      if current_step % FLAGS.steps_per_checkpoint == 0:
-        # Print statistics for the previous epoch.
-        perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
-        print ("global step %d learning rate %.4f loss %.2f perplexity "
-               "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                         loss, perplexity))
-        # Decrease learning rate if no improvement was seen over last 3 times.
-        if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
-          sess.run(model.learning_rate_decay_op)
-        previous_losses.append(loss)
-        # Save checkpoint and zero timer and loss.
-        checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
-        model.saver.save(sess, checkpoint_path, global_step=model.global_step)
+        # This is the training loop.
         step_time, loss = 0.0, 0.0
-        # Run evals on development set and print their perplexity.
-        for bucket_id in xrange(len(_buckets)):
-          if len(dev_set[bucket_id]) == 0:
-            print("  eval: empty bucket %d" % (bucket_id))
-            continue
-          encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
-              model.get_batch(dev_set, bucket_id)
-          _, eval_loss, _ = model.step(sess,
-                                       encoder_inputs,
-                                       decoder_inputs,
-                                       decoder_targets,
-                                       decoder_target_1hots,
-                                       target_weights,
-                                       bucket_id,
-                                       True)
-          eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
-          print("  eval: bucket %d loss %.2f perplexity %.2f" % (bucket_id, eval_loss, eval_ppx))
-          # print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
-        sys.stdout.flush()
+        current_step = 0
+        previous_losses = []
+        while True:
+            # Choose a bucket according to data distribution. We pick a random number
+            # in [0, 1] and use the corresponding interval in train_buckets_scale.
+            random_number_01 = np.random.random_sample()
+            bucket_id = min([i for i in xrange(len(train_buckets_scale))
+                             if train_buckets_scale[i] > random_number_01])
+
+            # Get a batch and make a step.
+            start_time = time.time()
+            encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+                model.get_batch(train_set, bucket_id)
+            _, step_loss, _ = model.step(sess,
+                                         encoder_inputs,
+                                         decoder_inputs,
+                                         decoder_targets,
+                                         decoder_target_1hots,
+                                         target_weights,
+                                         bucket_id,
+                                         False)
+            step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
+            loss += step_loss / FLAGS.steps_per_checkpoint
+            current_step += 1
+
+            # Once in a while, we save checkpoint, print statistics, and run evals.
+            if current_step % FLAGS.steps_per_checkpoint == 0:
+                # Print statistics for the previous epoch.
+                perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
+                print("global step %d learning rate %.4f loss %.2f perplexity "
+                      "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+                                loss, perplexity))
+                # Decrease learning rate if no improvement was seen over last 3 times.
+                if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
+                    sess.run(model.learning_rate_decay_op)
+                previous_losses.append(loss)
+                # Save checkpoint and zero timer and loss.
+                checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
+                model.saver.save(sess, checkpoint_path, global_step=model.global_step)
+                step_time, loss = 0.0, 0.0
+                # Run evals on development set and print their perplexity.
+                for bucket_id in xrange(len(_buckets)):
+                    if len(dev_set[bucket_id]) == 0:
+                        print("  eval: empty bucket %d" % (bucket_id))
+                        continue
+                    encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+                        model.get_batch(dev_set, bucket_id)
+                    _, eval_loss, _ = model.step(sess,
+                                                 encoder_inputs,
+                                                 decoder_inputs,
+                                                 decoder_targets,
+                                                 decoder_target_1hots,
+                                                 target_weights,
+                                                 bucket_id,
+                                                 True)
+                    eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
+                    print("  eval: bucket %d loss %.2f perplexity %.2f" % (
+                    bucket_id, eval_loss, eval_ppx))
+                    print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
+                sys.stdout.flush()
 
 
 def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
@@ -299,7 +299,7 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
             if data_utils._EOS in outputs:
                 outputs = outputs[:outputs.index(data_utils._EOS)]
             outputs_dereferenced = []
-            #for decoder_output in outputs:
+            # for decoder_output in outputs:
             #    if len(data_utils._START_VOCAB) <= decoder_output:
             #        outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
             #    else:
@@ -312,64 +312,65 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
 
 
 def decode():
-  with tf.Session() as sess:
-    # Load vocabularies.
-    en_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
-    fr_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
-    en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
-    fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+    with tf.Session() as sess:
+        # Load vocabularies.
+        en_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
+        fr_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
+        en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
+        fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
 
-    # Create model and load parameters.
-    model = create_model(sess, len(en_vocab), len(fr_vocab), True)
-    model.batch_size = 1  # We decode one sentence at a time.
+        # Create model and load parameters.
+        model = create_model(sess, len(en_vocab), len(fr_vocab), True)
+        model.batch_size = 1  # We decode one sentence at a time.
 
-    # Decode from standard input.
-    sys.stdout.write("> ")
-    sys.stdout.flush()
-    sentence = sys.stdin.readline()
-    while sentence:
-      # Get token-ids for the input sentence.
-      token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
-      # Which bucket does it belong to?
-      bucket_id = len(_buckets) - 1
-      for i, bucket in enumerate(_buckets):
-        if bucket[0] >= len(token_ids):
-          bucket_id = i
-          break
-      else:
-        logging.warning("Sentence truncated: %s", sentence)
+        # Decode from standard input.
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+        sentence = sys.stdin.readline()
+        while sentence:
+            # Get token-ids for the input sentence.
+            token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
+            # Which bucket does it belong to?
+            bucket_id = len(_buckets) - 1
+            for i, bucket in enumerate(_buckets):
+                if bucket[0] >= len(token_ids):
+                    bucket_id = i
+                    break
+            else:
+                logging.warning("Sentence truncated: %s", sentence)
 
-      # Get a 1-element batch to feed the sentence to the model.
-      encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
-          model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
-      # Get output logits for the sentence.
-      _, _, output_logits_and_attentions = model.step(sess,
-                                                      encoder_inputs, 
-                                                      decoder_inputs,
-                                                      decoder_targets,
-                                                      decoder_target_1hots,
-                                                      target_weights,
-                                                      bucket_id,
-                                                      True)
-      encoder_input_tensors = [tf.convert_to_tensor(enc_input) for enc_input in encoder_inputs]
-      output_tensors = \
-          [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-          for logit, attention_dist in output_logits_and_attentions]
-      outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
-      # This is a greedy decoder - outputs are just argmaxes of output_logits.
-      
-      # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-      # If there is an EOS symbol in outputs, cut them at that point.
-      if data_utils.EOS_ID in outputs:
-        outputs = outputs[:outputs.index(data_utils.EOS_ID)]
-      # Print out French sentence corresponding to outputs.
-      tokens = []
-      for output in outputs:
-          tokens.append(tf.compat.as_str(rev_fr_vocab[output]))
-      print(" ".join(tokens))
-      print("> ", end="")
-      sys.stdout.flush()
-      sentence = sys.stdin.readline()
+            # Get a 1-element batch to feed the sentence to the model.
+            encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+                model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
+            # Get output logits for the sentence.
+            _, _, output_logits_and_attentions = model.step(sess,
+                                                            encoder_inputs,
+                                                            decoder_inputs,
+                                                            decoder_targets,
+                                                            decoder_target_1hots,
+                                                            target_weights,
+                                                            bucket_id,
+                                                            True)
+            encoder_input_tensors = [tf.convert_to_tensor(enc_input) for enc_input in
+                                     encoder_inputs]
+            output_tensors = \
+                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+                 for logit, attention_dist in output_logits_and_attentions]
+            outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
+            # This is a greedy decoder - outputs are just argmaxes of output_logits.
+
+            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+            # If there is an EOS symbol in outputs, cut them at that point.
+            if data_utils.EOS_ID in outputs:
+                outputs = outputs[:outputs.index(data_utils.EOS_ID)]
+            # Print out French sentence corresponding to outputs.
+            tokens = []
+            for output in outputs:
+                tokens.append(tf.compat.as_str(rev_fr_vocab[output]))
+            print(" ".join(tokens))
+            print("> ", end="")
+            sys.stdout.flush()
+            sentence = sys.stdin.readline()
 
 
 def self_test():
