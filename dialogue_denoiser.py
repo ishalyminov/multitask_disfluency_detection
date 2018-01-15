@@ -255,7 +255,7 @@ def train():
                     eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
                     print("  eval: bucket %d loss %.2f perplexity %.2f" % (
                     bucket_id, eval_loss, eval_ppx))
-                    print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
+                    # print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
                 sys.stdout.flush()
 
 
@@ -281,31 +281,32 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
                 in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
                                    bucket_id)
             # Get output logits for the sentence.
-            _, _, output_logits = in_model.step(in_session,
-                                                enc_in,
-                                                dec_in,
-                                                dec_tgt,
-                                                dec_tgt_1hots,
-                                                target_weights,
-                                                bucket_id,
-                                                True)
+            _, _, output_logits_and_attentions = in_model.step(in_session,
+                                                               enc_in,
+                                                               dec_in,
+                                                               dec_tgt,
+                                                               dec_tgt_1hots,
+                                                               target_weights,
+                                                               bucket_id,
+                                                               True)
+            encoder_input_tensors = [tf.convert_to_tensor(enc_input)
+                                     for enc_input in enc_in]
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
             # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-            outputs = [
+            output_tensors = \
+                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+                 for logit, attention_dist in output_logits_and_attentions]
+            outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
+
+            ''' outputs = [
                 int(np.argmax(logit, axis=1))
                 for logit in output_logits
-            ]
+            ] '''
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_utils._EOS in outputs:
                 outputs = outputs[:outputs.index(data_utils._EOS)]
-            outputs_dereferenced = []
-            # for decoder_output in outputs:
-            #    if len(data_utils._START_VOCAB) <= decoder_output:
-            #        outputs_dereferenced.append(encoder_inputs[decoder_output - len(data_utils._START_VOCAB)])
-            #    else:
-            #        outputs_dereferenced.append(decoder_output)
-            print("Gold: ", ' '.join(map(str, decoder_inputs)))
-            print("Pred: ", ' '.join(map(str, outputs)))
+            print('Gold: ', ' '.join(map(str, decoder_inputs)))
+            print('Pred: ', ' '.join(map(str, outputs)))
             results.append(int(outputs == decoder_inputs))
     in_model.batch_size = original_batch_size
     return sum(results) / float(len(results))
@@ -314,8 +315,8 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
 def decode():
     with tf.Session() as sess:
         # Load vocabularies.
-        en_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
-        fr_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
+        en_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.from')
+        fr_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.to')
         en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
         fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
 
@@ -324,7 +325,7 @@ def decode():
         model.batch_size = 1  # We decode one sentence at a time.
 
         # Decode from standard input.
-        sys.stdout.write("> ")
+        sys.stdout.write('> ')
         sys.stdout.flush()
         sentence = sys.stdin.readline()
         while sentence:
@@ -337,7 +338,7 @@ def decode():
                     bucket_id = i
                     break
             else:
-                logging.warning("Sentence truncated: %s", sentence)
+                logging.warning('Sentence truncated: %s', sentence)
 
             # Get a 1-element batch to feed the sentence to the model.
             encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
