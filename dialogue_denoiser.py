@@ -282,7 +282,7 @@ def train():
 
 def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
     original_batch_size = in_model.batch_size
-    in_model.batch_size = 1  # We decode one sentence at a time - it's easier for now (something to fix later)
+    in_model.batch_size = 64
 
     # Load vocabularies.
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
@@ -296,11 +296,12 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
     results = []
     for bucket_id in xrange(len(dataset)):
         bucket_data = dataset[bucket_id]
-        for encoder_inputs, decoder_inputs, decoder_targets in bucket_data:
+        for index in xrange(0, len(bucket_data), in_model.batch_size):
             # Get a 1-element batch to feed the sentence to the model.
             enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = \
-                in_model.get_batch({bucket_id: [(encoder_inputs, [], [])]},
-                                   bucket_id)
+                in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
+                #in_model.get_batch({bucket_id: [(encoder_inputs, [], [])] * in_model.batch_size},
+                #                   bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits_and_attentions = in_model.step(in_session,
                                                                enc_in,
@@ -310,25 +311,22 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
                                                                target_weights,
                                                                bucket_id,
                                                                True)
-            encoder_input_tensors = [tf.convert_to_tensor(enc_input)
-                                     for enc_input in enc_in]
+            #encoder_input_tensors = [tf.convert_to_tensor(enc_input)
+            #                         for enc_input in enc_in]
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
-            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-            output_tensors = \
-                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-                 for logit, attention_dist in output_logits_and_attentions]
-            outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
+            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits_and_attentions[0]]
+            #output_tensors = \
+            #    [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+            #     for logit, attention_dist in output_logits_and_attentions]
+            #outputs = [tf.to_int64(output_tensor) for output_tensor in output_tensors]
 
-            ''' outputs = [
-                int(np.argmax(logit, axis=1))
-                for logit in output_logits
-            ] '''
             # If there is an EOS symbol in outputs, cut them at that point.
-            if data_utils._EOS in outputs:
-                outputs = outputs[:outputs.index(data_utils._EOS)]
-            print('Gold: ', ' '.join(map(str, decoder_inputs)))
-            print('Pred: ', ' '.join(map(str, outputs)))
-            results.append(int(outputs == decoder_inputs))
+            #if data_utils.EOS_ID in outputs:
+            #    outputs = outputs[:outputs.index(data_utils.EOS_ID) + 1]
+            #print('Gold: ', ' '.join(map(str, decoder_inputs)))
+            #print('Pred: ', ' '.join(map(str, outputs)))
+            #results.append(int(outputs == decoder_inputs))
+            print("Processed {} out of {} data points".format(index, len(bucket_data)))
     in_model.batch_size = original_batch_size
     return sum(results) / float(len(results))
 
@@ -400,15 +398,18 @@ def evaluate():
         # Load vocabularies.
         en_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.from')
         fr_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.to')
+        from_dev_path = FLAGS.from_dev_data
+        to_dev_path = FLAGS.to_dev_data
+        from_dev, to_dev, targets_dev = data_utils.make_dataset(from_dev_path,
+                                                                to_dev_path,
+                                                                en_vocab_path,
+                                                                fr_vocab_path,
+                                                                tokenizer=None,
+                                                                force=FLAGS.force_make_data)
         en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
         fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
         model = create_model(sess, len(en_vocab), len(fr_vocab), True)
-        from_dev, to_dev, targets_dev = make_dataset(from_dev_path,
-                                                     to_dev_path,
-                                                     from_vocab_path,
-                                                     to_vocab_path,
-                                                     tokenizer=None,
-                                                     force=FLAGS.force_make_data)
+
         accuracy = eval_model(sess, model, from_dev, to_dev, targets_dev)
         print("Per-utterance accuracy: %.2f" % accuracy)
 
