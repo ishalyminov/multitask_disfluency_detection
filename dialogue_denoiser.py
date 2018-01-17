@@ -70,6 +70,9 @@ tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32
 tf.app.flags.DEFINE_boolean("combined_vocabulary",
                             False,
                             "Using a combined encoder/decoder vocabulary")
+tf.app.flags.DEFINE_integer("early_stopping_checkpoints",
+                            10,
+                            "Terminating training after this number of checkpoints of loss increase")
 tf.app.flags.DEFINE_boolean("force_make_data",
                             False,
                             "Create datasets even if corresponding files exist")
@@ -202,6 +205,8 @@ def train():
         # This is the training loop.
         step_time, loss = 0.0, 0.0
         current_step = 0
+        best_loss = None 
+        suboptimal_loss_steps = 0
         previous_losses = []
         while True:
             # Choose a bucket according to data distribution. We pick a random number
@@ -242,6 +247,7 @@ def train():
                 model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 step_time, loss = 0.0, 0.0
                 # Run evals on development set and print their perplexity.
+                total_eval_loss = 0.0
                 for bucket_id in xrange(len(_buckets)):
                     if len(dev_set[bucket_id]) == 0:
                         print("  eval: empty bucket %d" % (bucket_id))
@@ -256,11 +262,20 @@ def train():
                                                  target_weights,
                                                  bucket_id,
                                                  True)
+                    total_eval_loss += eval_loss
                     eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
                     print("  eval: bucket %d loss %.2f perplexity %.2f" % (
                     bucket_id, eval_loss, eval_ppx))
                     # print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
                 sys.stdout.flush()
+                if best_loss is None or total_eval_loss < best_loss:
+                    suboptimal_loss_steps = 0
+                    best_loss = total_eval_loss
+                else:
+                    suboptimal_loss_steps += 1
+                    if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
+                        print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
+                        break
 
 
 def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
