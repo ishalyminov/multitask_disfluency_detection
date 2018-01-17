@@ -311,21 +311,25 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
                                                                target_weights,
                                                                bucket_id,
                                                                True)
-            #encoder_input_tensors = [tf.convert_to_tensor(enc_input)
-            #                         for enc_input in enc_in]
+            encoder_input_tensors = [tf.convert_to_tensor(enc_input)
+                                     for enc_input in enc_in]
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
             # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits_and_attentions[0]]
-            #output_tensors = \
-            #    [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-            #     for logit, attention_dist in output_logits_and_attentions]
-            #outputs = [tf.to_int64(output_tensor) for output_tensor in output_tensors]
-
-            # If there is an EOS symbol in outputs, cut them at that point.
-            #if data_utils.EOS_ID in outputs:
-            #    outputs = outputs[:outputs.index(data_utils.EOS_ID) + 1]
+            output_tensors = \
+                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
+                 for logit, attention_dist in output_logits_and_attentions]
+            outputs = [[] for _ in xrange(enc_in[0].shape[0])]
+            for output_tensor in output_tensors:
+                for token_index, token in enumerate(output_tensor.eval()):
+                    outputs[token_index].append(token)
+            for output_sequence, data_tuple in zip(outputs, bucket_data[index:index + in_model.batch_size]):
+                encoder_input, decoder_input, decoder_target = data_tuple
+                sequence_final = output_sequence
+                if data_utils.EOS_ID in output_sequence:
+                    sequence_final = output_sequence[:output_sequence.index(data_utils.EOS_ID) + 1]
+                results.append(int(sequence_final == decoder_input))
             #print('Gold: ', ' '.join(map(str, decoder_inputs)))
             #print('Pred: ', ' '.join(map(str, outputs)))
-            #results.append(int(outputs == decoder_inputs))
             print("Processed {} out of {} data points".format(index, len(bucket_data)))
     in_model.batch_size = original_batch_size
     return sum(results) / float(len(results))
