@@ -65,6 +65,7 @@ tf.app.flags.DEFINE_integer("steps_per_checkpoint",
                             200,
                             "How many training steps to do per checkpoint.")  # 200
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.")
+tf.app.flags.DEFINE_boolean("evaluate", False, "Set to True for evaluation.")
 tf.app.flags.DEFINE_boolean("self_test", False, "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
 tf.app.flags.DEFINE_boolean("combined_vocabulary",
@@ -164,6 +165,7 @@ def train():
     to_train_data = FLAGS.to_train_data
     from_dev_data = FLAGS.from_dev_data
     to_dev_data = FLAGS.to_dev_data
+
     from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = \
         data_utils.prepare_data(FLAGS.data_dir,
                                 from_train_data,
@@ -393,6 +395,24 @@ def decode():
             sentence = sys.stdin.readline()
 
 
+def evaluate():
+    with tf.Session() as sess:
+        # Load vocabularies.
+        en_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.from')
+        fr_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.to')
+        en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
+        fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+        model = create_model(sess, len(en_vocab), len(fr_vocab), True)
+        from_dev, to_dev, targets_dev = make_dataset(from_dev_path,
+                                                     to_dev_path,
+                                                     from_vocab_path,
+                                                     to_vocab_path,
+                                                     tokenizer=None,
+                                                     force=FLAGS.force_make_data)
+        accuracy = eval_model(sess, model, from_dev, to_dev, targets_dev)
+        print("Per-utterance accuracy: %.2f" % accuracy)
+
+
 def self_test():
     """Test the translation model."""
     with tf.Session() as sess:
@@ -424,6 +444,8 @@ def main(_):
         self_test()
     elif FLAGS.decode:
         decode()
+    elif FLAGS.evaluate:
+        evaluate()
     else:
         train()
 
