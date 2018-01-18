@@ -282,7 +282,7 @@ def train():
 
 def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
     original_batch_size = in_model.batch_size
-    in_model.batch_size = 64
+    in_model.batch_size = 64 
 
     # Load vocabularies.
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
@@ -294,33 +294,26 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
     to_dev_data = FLAGS.to_dev_data
     dataset = read_data(from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path, max_size=None)
     results = []
+    outputs = None
     for bucket_id in xrange(len(dataset)):
         bucket_data = dataset[bucket_id]
         for index in xrange(0, len(bucket_data), in_model.batch_size):
             # Get a 1-element batch to feed the sentence to the model.
             enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = \
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
-                #in_model.get_batch({bucket_id: [(encoder_inputs, [], [])] * in_model.batch_size},
-                #                   bucket_id)
             # Get output logits for the sentence.
-            _, _, output_logits_and_attentions = in_model.step(in_session,
-                                                               enc_in,
-                                                               dec_in,
-                                                               dec_tgt,
-                                                               dec_tgt_1hots,
-                                                               target_weights,
-                                                               bucket_id,
-                                                               True)
-            encoder_input_tensors = [tf.convert_to_tensor(enc_input)
-                                     for enc_input in enc_in]
+            _, _, output_logits = in_model.step(in_session,
+                                                enc_in,
+                                                dec_in,
+                                                dec_tgt,
+                                                dec_tgt_1hots,
+                                                target_weights,
+                                                bucket_id,
+                                                True)
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
-            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits_and_attentions[0]]
-            output_tensors = \
-                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-                 for logit, attention_dist in output_logits_and_attentions]
-            outputs = [[] for _ in xrange(enc_in[0].shape[0])]
-            for output_tensor in output_tensors:
-                for token_index, token in enumerate(output_tensor.eval()):
+            outputs = [[] for _ in xrange(len(output_logits[0]))]
+            for output_tensor in output_logits:
+                for token_index, token in enumerate(output_tensor):
                     outputs[token_index].append(token)
             for output_sequence, data_tuple in zip(outputs, bucket_data[index:index + in_model.batch_size]):
                 encoder_input, decoder_input, decoder_target = data_tuple
@@ -367,22 +360,17 @@ def decode():
             encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
                 model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
             # Get output logits for the sentence.
-            _, _, output_logits_and_attentions = model.step(sess,
-                                                            encoder_inputs,
-                                                            decoder_inputs,
-                                                            decoder_targets,
-                                                            decoder_target_1hots,
-                                                            target_weights,
-                                                            bucket_id,
-                                                            True)
-            encoder_input_tensors = [tf.convert_to_tensor(enc_input) for enc_input in
-                                     encoder_inputs]
-            output_tensors = \
-                [seq2seq.extract_copy_augmented_argmax(logit, attention_dist, encoder_input_tensors)
-                 for logit, attention_dist in output_logits_and_attentions]
-            outputs = [int(output_tensor.eval()) for output_tensor in output_tensors]
+            _, _, output_logits = model.step(sess,
+                                             encoder_inputs,
+                                             decoder_inputs,
+                                             decoder_targets,
+                                             decoder_target_1hots,
+                                             target_weights,
+                                             bucket_id,
+                                             True)
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
 
+            outputs = [logit[0] for logit in output_logits]
             # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
             # If there is an EOS symbol in outputs, cut them at that point.
             if data_utils.EOS_ID in outputs:
