@@ -318,9 +318,9 @@ def eval_model(in_session, in_model, dataset):
                 if data_utils.EOS_ID in output_sequence:
                     sequence_final = output_sequence[:output_sequence.index(data_utils.EOS_ID) + 1]
                 results.append(int(sequence_final == decoder_input))
-            #print('Gold: ', ' '.join(map(str, decoder_inputs)))
-            #print('Pred: ', ' '.join(map(str, outputs)))
-            print("Processed {} out of {} data points".format(index, len(bucket_data)))
+            # print('Gold: ', ' '.join(map(str, decoder_inputs)))
+            # print('Pred: ', ' '.join(map(str, outputs)))
+            # print("Processed {} out of {} data points".format(index, len(bucket_data)))
     in_model.batch_size = original_batch_size
     loss = np.mean(losses)
     perplexity = get_perplexity(loss)
