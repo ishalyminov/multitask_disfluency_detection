@@ -42,7 +42,7 @@ import shutil
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
-from copy_seq2seq import data_utils, seq2seq_model, seq2seq
+from copy_seq2seq import data_utils, seq2seq_model
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
@@ -56,8 +56,10 @@ tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
 tf.app.flags.DEFINE_string("from_train_data", None, "Training data.")
 tf.app.flags.DEFINE_string("to_train_data", None, "Training data.")
-tf.app.flags.DEFINE_string("from_dev_data", None, "Training data.")
-tf.app.flags.DEFINE_string("to_dev_data", None, "Training data.")
+tf.app.flags.DEFINE_string("from_dev_data", None, "Development data.")
+tf.app.flags.DEFINE_string("to_dev_data", None, "Development data.")
+tf.app.flags.DEFINE_string("from_test_data", None, "Testing data.")
+tf.app.flags.DEFINE_string("to_test_data", None, "Testing data.")
 tf.app.flags.DEFINE_integer("max_train_data_size",
                             0,
                             "Limit on the size of training data (0: no limit).")
@@ -83,6 +85,10 @@ FLAGS = tf.app.flags.FLAGS
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
 _buckets = [(20, 30)]
+
+
+def get_perplexity(in_loss):
+    return math.exp(float(in_loss)) if in_loss < 300 else float("inf")
 
 
 def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
@@ -165,18 +171,25 @@ def train():
     to_train_data = FLAGS.to_train_data
     from_dev_data = FLAGS.from_dev_data
     to_dev_data = FLAGS.to_dev_data
+    from_test_data = FLAGS.from_test_data
+    to_test_data = FLAGS.to_test_data
 
-    from_train, to_train, targets_train, from_dev, to_dev, targets_dev, _, _ = \
+    train_data, dev_data, test_data, _, _ = \
         data_utils.prepare_data(FLAGS.data_dir,
                                 from_train_data,
                                 to_train_data,
                                 from_dev_data,
                                 to_dev_data,
+                                from_test_data,
+                                to_test_data,
                                 FLAGS.from_vocab_size,
                                 FLAGS.to_vocab_size,
                                 copy_tokens_number=_buckets[0][1],
                                 combined_vocabulary=FLAGS.combined_vocabulary,
                                 force=FLAGS.force_make_data)
+    from_train, to_train, targets_train = train_data
+    from_dev, to_dev, targets_dev = dev_data
+    from_test, to_test, targets_test = test_data
 
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
     dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
@@ -192,9 +205,11 @@ def train():
                              force_create_fresh=FLAGS.force_make_data)
 
         # Read data into buckets and compute their sizes.
-        print("Reading development and training data (limit: %d)." % FLAGS.max_train_data_size)
-        dev_set = read_data(from_dev, to_dev, targets_dev)
+        print("Reading train/dev/test data (limit: %d)." % FLAGS.max_train_data_size)
         train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
+        dev_set = read_data(from_dev, to_dev, targets_dev)
+        test_set = read_data(from_test, to_test, targets_test)
+
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
         train_total_size = float(sum(train_bucket_sizes))
 
@@ -210,6 +225,8 @@ def train():
         best_loss = None 
         suboptimal_loss_steps = 0
         previous_losses = []
+        checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
+
         while True:
             # Choose a bucket according to data distribution. We pick a random number
             # in [0, 1] and use the corresponding interval in train_buckets_scale.
@@ -236,7 +253,7 @@ def train():
             # Once in a while, we save checkpoint, print statistics, and run evals.
             if current_step % FLAGS.steps_per_checkpoint == 0:
                 # Print statistics for the previous epoch.
-                perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
+                perplexity = get_perplexity(loss)
                 print("global step %d learning rate %.4f loss %.2f perplexity "
                       "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                                 loss, perplexity))
@@ -244,35 +261,23 @@ def train():
                 if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
-                # Save checkpoint and zero timer and loss.
-                checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
-                model.saver.save(sess, checkpoint_path, global_step=model.global_step)
-                step_time, loss = 0.0, 0.0
-                # Run evals on development set and print their perplexity.
-                total_eval_loss = 0.0
-                for bucket_id in xrange(len(_buckets)):
-                    if len(dev_set[bucket_id]) == 0:
-                        print("  eval: empty bucket %d" % (bucket_id))
-                        continue
-                    encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
-                        model.get_batch(dev_set, bucket_id)
-                    _, eval_loss, _ = model.step(sess,
-                                                 encoder_inputs,
-                                                 decoder_inputs,
-                                                 decoder_targets,
-                                                 decoder_target_1hots,
-                                                 target_weights,
-                                                 bucket_id,
-                                                 True)
-                    total_eval_loss += eval_loss
-                    eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
-                    print("  eval: bucket %d loss %.2f perplexity %.2f" % (
-                    bucket_id, eval_loss, eval_ppx))
-                    # print("Per-utterance accuracy: {}".format(eval_model(sess, model, from_dev, to_dev, targets_dev)))
+
+                dev_loss, dev_perplexity, dev_accuracy = eval_model(sess, model, dev_set)
+                test_loss, test_perplexity, test_accuracy = eval_model(sess, model, test_set)
+                print("  dev: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
+                    dev_loss,
+                    dev_perplexity,
+                    dev_accuracy))
+                print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
+                    test_loss,
+                    test_perplexity,
+                    test_accuracy))
                 sys.stdout.flush()
-                if best_loss is None or total_eval_loss < best_loss:
+                if best_loss is None or dev_loss < best_loss:
                     suboptimal_loss_steps = 0
-                    best_loss = total_eval_loss
+                    best_loss = dev_loss
+                    # Save checkpoint and zero timer and loss.
+                    model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 else:
                     suboptimal_loss_steps += 1
                     if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
@@ -280,29 +285,19 @@ def train():
                         break
 
 
-def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path):
+def eval_model(in_session, in_model, dataset):
     original_batch_size = in_model.batch_size
-    in_model.batch_size = 64 
+    in_model.batch_size = 64
 
-    # Load vocabularies.
-    enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
-    dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
-    enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
-    dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
-
-    from_dev_data = FLAGS.from_dev_data
-    to_dev_data = FLAGS.to_dev_data
-    dataset = read_data(from_dev_ids_path, to_dev_ids_path, to_dev_target_ids_path, max_size=None)
     results = []
-    outputs = None
+    losses = []
     for bucket_id in xrange(len(dataset)):
         bucket_data = dataset[bucket_id]
         for index in xrange(0, len(bucket_data), in_model.batch_size):
-            # Get a 1-element batch to feed the sentence to the model.
             enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = \
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
             # Get output logits for the sentence.
-            _, _, output_logits = in_model.step(in_session,
+            _, loss, output_logits = in_model.step(in_session,
                                                 enc_in,
                                                 dec_in,
                                                 dec_tgt,
@@ -310,12 +305,14 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
                                                 target_weights,
                                                 bucket_id,
                                                 True)
+            losses.append(loss)
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
             outputs = [[] for _ in xrange(len(output_logits[0]))]
             for output_tensor in output_logits:
                 for token_index, token in enumerate(output_tensor):
                     outputs[token_index].append(token)
-            for output_sequence, data_tuple in zip(outputs, bucket_data[index:index + in_model.batch_size]):
+            for output_sequence, data_tuple in zip(outputs,
+                                                   bucket_data[index:index + in_model.batch_size]):
                 encoder_input, decoder_input, decoder_target = data_tuple
                 sequence_final = output_sequence
                 if data_utils.EOS_ID in output_sequence:
@@ -325,7 +322,10 @@ def eval_model(in_session, in_model, from_dev_ids_path, to_dev_ids_path, to_dev_
             #print('Pred: ', ' '.join(map(str, outputs)))
             print("Processed {} out of {} data points".format(index, len(bucket_data)))
     in_model.batch_size = original_batch_size
-    return sum(results) / float(len(results))
+    loss = np.mean(losses)
+    perplexity = get_perplexity(loss)
+    per_utterance_accuracy = sum(results) / float(len(results))
+    return loss, perplexity, per_utterance_accuracy
 
 
 def decode():
@@ -402,8 +402,11 @@ def evaluate():
         fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
         model = create_model(sess, len(en_vocab), len(fr_vocab), True)
 
-        accuracy = eval_model(sess, model, from_dev, to_dev, targets_dev)
-        print("Per-utterance accuracy: %.2f" % accuracy)
+        dev_set = read_data(from_dev, to_dev, targets_dev)
+        loss, perplexity, accuracy = eval_model(sess, model, dev_set)
+        print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (loss,
+                                                                                 perplexity,
+                                                                                 accuracy))
 
 
 def self_test():
