@@ -47,7 +47,7 @@ from copy_seq2seq import data_utils, seq2seq_model
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 8, "Batch size to use during training.")  # 8
+tf.app.flags.DEFINE_integer("batch_size", 16, "Batch size to use during training.")  # 8
 tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.")  # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_integer("from_vocab_size", 100, "English vocabulary size.")  # 100
@@ -84,7 +84,7 @@ FLAGS = tf.app.flags.FLAGS
 
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
-_buckets = [(20, 30)]
+_buckets = [(150, 100)]
 
 
 def get_perplexity(in_loss):
@@ -220,7 +220,7 @@ def train():
                                for i in xrange(len(train_bucket_sizes))]
 
         # This is the training loop.
-        step_time, loss = 0.0, 0.0
+        loss = 0.0
         current_step = 0
         best_loss = None 
         suboptimal_loss_steps = 0
@@ -246,7 +246,6 @@ def train():
                                          target_weights,
                                          bucket_id,
                                          False)
-            step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
             loss += step_loss / FLAGS.steps_per_checkpoint
             current_step += 1
 
@@ -257,13 +256,19 @@ def train():
                 print("global step %d learning rate %.4f loss %.2f perplexity "
                       "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                                 loss, perplexity))
+                loss = 0.0
                 # Decrease learning rate if no improvement was seen over last 3 times.
                 if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
 
+                train_loss, train_perplexity, train_accuracy = eval_model(sess, model, train_set)
                 dev_loss, dev_perplexity, dev_accuracy = eval_model(sess, model, dev_set)
                 test_loss, test_perplexity, test_accuracy = eval_model(sess, model, test_set)
+                print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
+                    train_loss,
+                    train_perplexity,
+                    train_accuracy))
                 print("  dev: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
                     dev_loss,
                     dev_perplexity,
