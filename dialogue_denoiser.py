@@ -35,7 +35,6 @@ import math
 import os
 import random
 import sys
-import time
 import logging
 import shutil
 
@@ -91,7 +90,7 @@ def get_perplexity(in_loss):
     return math.exp(float(in_loss)) if in_loss < 300 else float("inf")
 
 
-def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
+def read_data(encoder_input, decoder_input, max_size=None):
     """Read data from source and target files and put into buckets.
 
     Args:
@@ -110,11 +109,8 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
     """
     data_set = [[] for _ in _buckets]
     with tf.gfile.GFile(encoder_input, mode="r") as encoder_input_file, \
-            tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file, \
-            tf.gfile.GFile(decoder_targets, mode="r") as decoder_targets_file:
-        encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
-                                                        decoder_input_file.readline(),
-                                                        decoder_targets_file.readline())
+         tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file:
+        encoder_input, decoder_input = encoder_input_file.readline(), decoder_input_file.readline()
         counter = 0
         while encoder_input and decoder_input and (not max_size or counter < max_size):
             counter += 1
@@ -124,17 +120,13 @@ def read_data(encoder_input, decoder_input, decoder_targets, max_size=None):
             encoder_ids = [int(x) for x in encoder_input.split()]
             decoder_ids = [int(x) for x in decoder_input.split()]
             decoder_ids.append(data_utils.EOS_ID)
-            decoder_target_ids = [
-                [int(elem) for elem in x.split(';')] for x in decoder_target.split()
-            ]
-            decoder_target_ids.append([data_utils.EOS_ID])
+
             for bucket_id, (source_size, target_size) in enumerate(_buckets):
                 if len(encoder_ids) < source_size and len(decoder_ids) < target_size:
-                    data_set[bucket_id].append([encoder_ids, decoder_ids, decoder_target_ids])
+                    data_set[bucket_id].append([encoder_ids, decoder_ids])
                     break
-            encoder_input, decoder_input, decoder_target = (encoder_input_file.readline(),
-                                                            decoder_input_file.readline(),
-                                                            decoder_targets_file.readline())
+            encoder_input, decoder_input = (encoder_input_file.readline(),
+                                            decoder_input_file.readline())
     return data_set
 
 
@@ -184,12 +176,11 @@ def train():
                                 to_test_data,
                                 FLAGS.from_vocab_size,
                                 FLAGS.to_vocab_size,
-                                copy_tokens_number=_buckets[0][1],
                                 combined_vocabulary=FLAGS.combined_vocabulary,
                                 force=FLAGS.force_make_data)
-    from_train, to_train, targets_train = train_data
-    from_dev, to_dev, targets_dev = dev_data
-    from_test, to_test, targets_test = test_data
+    from_train, to_train = train_data
+    from_dev, to_dev = dev_data
+    from_test, to_test = test_data
 
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
     dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
@@ -206,9 +197,9 @@ def train():
 
         # Read data into buckets and compute their sizes.
         print("Reading train/dev/test data (limit: %d)." % FLAGS.max_train_data_size)
-        train_set = read_data(from_train, to_train, targets_train, FLAGS.max_train_data_size)
-        dev_set = read_data(from_dev, to_dev, targets_dev)
-        test_set = read_data(from_test, to_test, targets_test)
+        train_set = read_data(from_train, to_train, FLAGS.max_train_data_size)
+        dev_set = read_data(from_dev, to_dev)
+        test_set = read_data(from_test, to_test)
 
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
         train_total_size = float(sum(train_bucket_sizes))
@@ -235,14 +226,12 @@ def train():
                              if train_buckets_scale[i] > random_number_01])
 
             # Get a batch and make a step.
-            start_time = time.time()
-            encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+            encoder_inputs, decoder_inputs, decoder_targets, target_weights = \
                 model.get_batch(train_set, bucket_id)
             _, step_loss, _ = model.step(sess,
                                          encoder_inputs,
                                          decoder_inputs,
                                          decoder_targets,
-                                         decoder_target_1hots,
                                          target_weights,
                                          bucket_id,
                                          False)
@@ -299,14 +288,13 @@ def eval_model(in_session, in_model, dataset):
     for bucket_id in xrange(len(dataset)):
         bucket_data = dataset[bucket_id]
         for index in xrange(0, len(bucket_data), in_model.batch_size):
-            enc_in, dec_in, dec_tgt, dec_tgt_1hots, target_weights = \
+            enc_in, dec_in, dec_tgt, target_weights = \
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
             # Get output logits for the sentence.
             _, loss, output_logits = in_model.step(in_session,
                                                 enc_in,
                                                 dec_in,
                                                 dec_tgt,
-                                                dec_tgt_1hots,
                                                 target_weights,
                                                 bucket_id,
                                                 True)
@@ -362,14 +350,13 @@ def decode():
                 logging.warning('Sentence truncated: %s', sentence)
 
             # Get a 1-element batch to feed the sentence to the model.
-            encoder_inputs, decoder_inputs, decoder_targets, decoder_target_1hots, target_weights = \
+            encoder_inputs, decoder_inputs, decoder_targets, target_weights = \
                 model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = model.step(sess,
                                              encoder_inputs,
                                              decoder_inputs,
                                              decoder_targets,
-                                             decoder_target_1hots,
                                              target_weights,
                                              bucket_id,
                                              True)
@@ -397,17 +384,17 @@ def evaluate():
         fr_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.to')
         from_dev_path = FLAGS.from_dev_data
         to_dev_path = FLAGS.to_dev_data
-        from_dev, to_dev, targets_dev = data_utils.make_dataset(from_dev_path,
-                                                                to_dev_path,
-                                                                en_vocab_path,
-                                                                fr_vocab_path,
-                                                                tokenizer=None,
-                                                                force=FLAGS.force_make_data)
+        from_dev, to_dev = data_utils.make_dataset(from_dev_path,
+                                                   to_dev_path,
+                                                   en_vocab_path,
+                                                   fr_vocab_path,
+                                                   tokenizer=None,
+                                                   force=FLAGS.force_make_data)
         en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
         fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
         model = create_model(sess, len(en_vocab), len(fr_vocab), True)
 
-        dev_set = read_data(from_dev, to_dev, targets_dev)
+        dev_set = read_data(from_dev, to_dev)
         loss, perplexity, accuracy = eval_model(sess, model, dev_set)
         print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (loss,
                                                                                  perplexity,
