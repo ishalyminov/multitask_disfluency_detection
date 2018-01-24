@@ -182,6 +182,16 @@ def train():
     from_dev, to_dev = dev_data
     from_test, to_test = test_data
 
+    train_tokenized = [(from_line, to_line)
+                       for from_line, to_line in zip(data_utils.tokenize_data(from_train_data),
+                                                     data_utils.tokenize_data(to_train_data))]
+    dev_tokenized = [(from_line, to_line)
+                     for from_line, to_line in zip(data_utils.tokenize_data(from_dev_data),
+                                                   data_utils.tokenize_data(to_dev_data))]
+    test_tokenized = [(from_line, to_line)
+                      for from_line, to_line in zip(data_utils.tokenize_data(from_test_data),
+                                                    data_utils.tokenize_data(to_test_data))]
+
     enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
     dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
     enc_vocab, rev_enc_vocab = data_utils.initialize_vocabulary(enc_vocab_path)
@@ -251,9 +261,9 @@ def train():
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
 
-                train_loss, train_perplexity, train_accuracy = eval_model(sess, model, train_set)
-                dev_loss, dev_perplexity, dev_accuracy = eval_model(sess, model, dev_set)
-                test_loss, test_perplexity, test_accuracy = eval_model(sess, model, test_set)
+                train_loss, train_perplexity, train_accuracy = eval_model(sess, model, train_set, train_tokenized)
+                dev_loss, dev_perplexity, dev_accuracy = eval_model(sess, model, dev_set, dev_tokenized)
+                test_loss, test_perplexity, test_accuracy = eval_model(sess, model, test_set, test_tokenized)
                 print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
                     train_loss,
                     train_perplexity,
@@ -279,7 +289,7 @@ def train():
                         break
 
 
-def eval_model(in_session, in_model, dataset):
+def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_tokenized):
     original_batch_size = in_model.batch_size
     in_model.batch_size = 64
 
@@ -288,6 +298,8 @@ def eval_model(in_session, in_model, dataset):
     for bucket_id in xrange(len(dataset)):
         bucket_data = dataset[bucket_id]
         for index in xrange(0, len(bucket_data), in_model.batch_size):
+            sequences_tokenized = in_dataset_tokenized[index: index + in_model.batch_size]
+
             enc_in, dec_in, dec_tgt, target_weights = \
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
             # Get output logits for the sentence.
@@ -304,13 +316,12 @@ def eval_model(in_session, in_model, dataset):
             for output_tensor in output_logits:
                 for token_index, token in enumerate(output_tensor):
                     outputs[token_index].append(token)
-            for output_sequence, data_tuple in zip(outputs,
-                                                   bucket_data[index:index + in_model.batch_size]):
-                encoder_input, decoder_input, decoder_target = data_tuple
-                sequence_final = output_sequence
-                if data_utils.EOS_ID in output_sequence:
-                    sequence_final = output_sequence[:output_sequence.index(data_utils.EOS_ID) + 1]
-                results.append(int(sequence_final == decoder_input))
+            for output_sequence, (encoder_tokens, decoder_tokens) in zip(outputs,
+                                                                         sequences_tokenized):
+                final_output = get_decoded_sequence(output_sequence,
+                                                    in_rev_dec_vocab,
+                                                    encoder_tokens)
+                results.append(int(decoder_tokens == final_output))
             # print('Gold: ', ' '.join(map(str, decoder_inputs)))
             # print('Pred: ', ' '.join(map(str, outputs)))
             # print("Processed {} out of {} data points".format(index, len(bucket_data)))
@@ -319,6 +330,15 @@ def eval_model(in_session, in_model, dataset):
     perplexity = get_perplexity(loss)
     per_utterance_accuracy = sum(results) / float(len(results))
     return loss, perplexity, per_utterance_accuracy
+
+
+def get_decoded_sequence(in_decoder_argmax, in_rev_vocab, in_encoder_sequence):
+    sequence = in_decoder_argmax[:]
+    if data_utils.EOS_ID in sequence:
+        sequence = sequence[:sequence.index(data_utils.EOS_ID) + 1]
+    result = [in_rev_vocab[token_id] if token_id < len(in_rev_vocab) else in_encoder_sequence[token_id]
+              for token_id in sequence]
+    return result
 
 
 def decode():
@@ -338,6 +358,7 @@ def decode():
         sys.stdout.flush()
         sentence = sys.stdin.readline()
         while sentence:
+            input_tokens = data_utils.basic_tokenizer(tf.compat.as_bytes(sentence))
             # Get token-ids for the input sentence.
             token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
             # Which bucket does it belong to?
@@ -363,15 +384,8 @@ def decode():
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
 
             outputs = [logit[0] for logit in output_logits]
-            # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-            # If there is an EOS symbol in outputs, cut them at that point.
-            if data_utils.EOS_ID in outputs:
-                outputs = outputs[:outputs.index(data_utils.EOS_ID)]
-            # Print out French sentence corresponding to outputs.
-            tokens = []
-            for output in outputs:
-                tokens.append(tf.compat.as_str(rev_fr_vocab[output]))
-            print(" ".join(tokens))
+            final_outputs = get_decoded_sequence(outputs, rev_fr_vocab, input_tokens)
+            print(" ".join(final_outputs))
             print("> ", end="")
             sys.stdout.flush()
             sentence = sys.stdin.readline()
@@ -395,7 +409,10 @@ def evaluate():
         model = create_model(sess, len(en_vocab), len(fr_vocab), True)
 
         dev_set = read_data(from_dev, to_dev)
-        loss, perplexity, accuracy = eval_model(sess, model, dev_set)
+        dev_tokenized = [(from_line, to_line)
+                         for from_line, to_line in zip(data_utils.tokenize_data(from_dev_path),
+                                                       data_utils.tokenize_data(to_dev_path))]
+        loss, perplexity, accuracy = eval_model(sess, model, dev_set, dev_tokenized)
         print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (loss,
                                                                                  perplexity,
                                                                                  accuracy))
