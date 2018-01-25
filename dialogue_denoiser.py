@@ -261,9 +261,21 @@ def train():
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
 
-                train_loss, train_perplexity, train_accuracy = eval_model(sess, model, train_set, train_tokenized)
-                dev_loss, dev_perplexity, dev_accuracy = eval_model(sess, model, dev_set, dev_tokenized)
-                test_loss, test_perplexity, test_accuracy = eval_model(sess, model, test_set, test_tokenized)
+                train_loss, train_perplexity, train_accuracy = eval_model(sess,
+                                                                          model,
+                                                                          rev_dec_vocab,
+                                                                          train_set,
+                                                                          train_tokenized)
+                dev_loss, dev_perplexity, dev_accuracy = eval_model(sess,
+                                                                    model,
+                                                                    rev_dec_vocab,
+                                                                    dev_set,
+                                                                    dev_tokenized)
+                test_loss, test_perplexity, test_accuracy = eval_model(sess,
+                                                                       model,
+                                                                       rev_dec_vocab,
+                                                                       test_set,
+                                                                       test_tokenized)
                 print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
                     train_loss,
                     train_perplexity,
@@ -335,8 +347,10 @@ def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_token
 def get_decoded_sequence(in_decoder_argmax, in_rev_vocab, in_encoder_sequence):
     sequence = in_decoder_argmax[:]
     if data_utils.EOS_ID in sequence:
-        sequence = sequence[:sequence.index(data_utils.EOS_ID) + 1]
-    result = [in_rev_vocab[token_id] if token_id < len(in_rev_vocab) else in_encoder_sequence[token_id]
+        sequence = sequence[:sequence.index(data_utils.EOS_ID)]
+    result = [in_rev_vocab[token_id] \
+                  if token_id < len(in_rev_vocab) \
+                  else in_encoder_sequence[token_id - len(in_rev_vocab)]
               for token_id in sequence]
     return result
 
@@ -412,7 +426,7 @@ def evaluate():
         dev_tokenized = [(from_line, to_line)
                          for from_line, to_line in zip(data_utils.tokenize_data(from_dev_path),
                                                        data_utils.tokenize_data(to_dev_path))]
-        loss, perplexity, accuracy = eval_model(sess, model, dev_set, dev_tokenized)
+        loss, perplexity, accuracy = eval_model(sess, model, rev_fr_vocab, dev_set, dev_tokenized)
         print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (loss,
                                                                                  perplexity,
                                                                                  accuracy))
