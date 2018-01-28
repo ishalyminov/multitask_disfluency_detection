@@ -223,7 +223,8 @@ def train():
         # This is the training loop.
         loss = 0.0
         current_step = 0
-        best_loss = None 
+        best_train_loss, best_dev_loss, best_test_loss = None, None, None
+        best_loss_step = 0
         suboptimal_loss_steps = 0
         previous_losses = []
         checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
@@ -289,9 +290,10 @@ def train():
                     test_perplexity,
                     test_accuracy))
                 sys.stdout.flush()
-                if best_loss is None or dev_loss < best_loss:
+                if best_dev_loss is None or dev_loss < best_dev_loss:
                     suboptimal_loss_steps = 0
-                    best_loss = dev_loss
+                    best_train_loss, best_dev_loss, best_test_loss = train_loss, dev_loss, test_loss
+                    best_loss_step = model.global_step
                     # Save checkpoint and zero timer and loss.
                     model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 else:
@@ -299,6 +301,8 @@ def train():
                     if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
                         print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
                         break
+        print("Best loss achieved: %.2f (train) %.2f (*dev) %.2f (test)" %
+              (best_train_loss, best_dev_loss, best_test_loss))
 
 
 def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_tokenized):
@@ -386,7 +390,7 @@ def decode():
 
             # Get a 1-element batch to feed the sentence to the model.
             encoder_inputs, decoder_inputs, decoder_targets, target_weights = \
-                model.get_batch({bucket_id: [(token_ids, [], [])]}, bucket_id)
+                model.get_batch({bucket_id: [(token_ids, [])]}, bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = model.step(sess,
                                              encoder_inputs,
@@ -420,16 +424,15 @@ def evaluate():
                                                    force=FLAGS.force_make_data)
         en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
         fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
-        model = create_model(sess, len(en_vocab), len(fr_vocab), True)
+        model = create_model(sess, len(en_vocab), len(fr_vocab), forward_only=True)
 
         dev_set = read_data(from_dev, to_dev)
         dev_tokenized = [(from_line, to_line)
                          for from_line, to_line in zip(data_utils.tokenize_data(from_dev_path),
                                                        data_utils.tokenize_data(to_dev_path))]
         loss, perplexity, accuracy = eval_model(sess, model, rev_fr_vocab, dev_set, dev_tokenized)
-        print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (loss,
-                                                                                 perplexity,
-                                                                                 accuracy))
+        print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" %
+              (loss, perplexity, accuracy))
 
 
 def self_test():
