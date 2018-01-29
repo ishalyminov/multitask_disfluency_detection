@@ -41,7 +41,7 @@ import shutil
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
-from copy_seq2seq import data_utils, seq2seq_model
+from copy_seq2seq import data_utils, dual_encoder_copy_seq2seq_model
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
@@ -133,17 +133,18 @@ def read_data(encoder_input, decoder_input, max_size=None):
 def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_create_fresh=False):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-    model = seq2seq_model.Seq2SeqModel(from_vocab_size,
-                                       to_vocab_size,
-                                       _buckets,
-                                       FLAGS.size,
-                                       FLAGS.num_layers,
-                                       FLAGS.max_gradient_norm,
-                                       FLAGS.batch_size,
-                                       FLAGS.learning_rate,
-                                       FLAGS.learning_rate_decay_factor,
-                                       forward_only=forward_only,
-                                       dtype=dtype)
+    model = dual_encoder_copy_seq2seq_model.DualEncoderCopySeq2SeqModel(from_vocab_size,
+                                                                        from_vocab_size,
+                                                                        to_vocab_size,
+                                                                        _buckets,
+                                                                        FLAGS.size,
+                                                                        FLAGS.num_layers,
+                                                                        FLAGS.max_gradient_norm,
+                                                                        FLAGS.batch_size,
+                                                                        FLAGS.learning_rate,
+                                                                        FLAGS.learning_rate_decay_factor,
+                                                                        forward_only=forward_only,
+                                                                        dtype=dtype)
     if force_create_fresh:
         if os.path.exists(FLAGS.train_dir):
             shutil.rmtree(FLAGS.train_dir)
@@ -241,6 +242,7 @@ def train():
                 model.get_batch(train_set, bucket_id)
             _, step_loss, _ = model.step(sess,
                                          encoder_inputs,
+                                         encoder_inputs,
                                          decoder_inputs,
                                          decoder_targets,
                                          target_weights,
@@ -320,12 +322,13 @@ def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_token
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
             # Get output logits for the sentence.
             _, loss, output_logits = in_model.step(in_session,
-                                                enc_in,
-                                                dec_in,
-                                                dec_tgt,
-                                                target_weights,
-                                                bucket_id,
-                                                True)
+                                                   enc_in,
+                                                   enc_in,
+                                                   dec_in,
+                                                   dec_tgt,
+                                                   target_weights,
+                                                   bucket_id,
+                                                   True)
             losses.append(loss)
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
             outputs = [[] for _ in xrange(len(output_logits[0]))]
@@ -393,6 +396,7 @@ def decode():
                 model.get_batch({bucket_id: [(token_ids, [])]}, bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = model.step(sess,
+                                             encoder_inputs,
                                              encoder_inputs,
                                              decoder_inputs,
                                              decoder_targets,
