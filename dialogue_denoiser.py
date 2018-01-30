@@ -41,6 +41,8 @@ import shutil
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
+import nltk
+
 from copy_seq2seq import data_utils, dual_encoder_copy_seq2seq_model
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
@@ -130,12 +132,12 @@ def read_data(encoder_input, decoder_input, max_size=None):
     return data_set
 
 
-def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_create_fresh=False):
+def create_model(session, enc_a_vocab_size, enc_b_vocab_size, dec_vocab_size, forward_only, force_create_fresh=False):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-    model = dual_encoder_copy_seq2seq_model.DualEncoderCopySeq2SeqModel(from_vocab_size,
-                                                                        from_vocab_size,
-                                                                        to_vocab_size,
+    model = dual_encoder_copy_seq2seq_model.DualEncoderCopySeq2SeqModel(enc_a_vocab_size,
+                                                                        enc_b_vocab_size,
+                                                                        dec_vocab_size,
                                                                         _buckets,
                                                                         FLAGS.size,
                                                                         FLAGS.num_layers,
@@ -179,9 +181,9 @@ def train():
                                 FLAGS.to_vocab_size,
                                 combined_vocabulary=FLAGS.combined_vocabulary,
                                 force=FLAGS.force_make_data)
-    from_train, to_train = train_data
-    from_dev, to_dev = dev_data
-    from_test, to_test = test_data
+    enc_a_train, enc_b_train, dec_train = train_data
+    enc_a_dev, enc_b_dev, dec_dev = dev_data
+    enc_a_test, enc_b_test, dec_test = test_data
 
     train_tokenized = [(from_line, to_line)
                        for from_line, to_line in zip(data_utils.tokenize_data(from_train_data),
@@ -193,23 +195,26 @@ def train():
                       for from_line, to_line in zip(data_utils.tokenize_data(from_test_data),
                                                     data_utils.tokenize_data(to_test_data))]
 
-    enc_vocab_path = os.path.join(FLAGS.data_dir, "vocab.from")
-    dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.to")
-    enc_vocab, rev_enc_vocab = data_utils.initialize_vocabulary(enc_vocab_path)
+    enc_a_vocab_path = os.path.join(FLAGS.data_dir, "vocab.enc_a")
+    enc_b_vocab_path = os.path.join(FLAGS.data_dir, "vocab.enc_b")
+    dec_vocab_path = os.path.join(FLAGS.data_dir, "vocab.dec")
+    enc_a_vocab, rev_enc_a_vocab = data_utils.initialize_vocabulary(enc_a_vocab_path)
+    enc_b_vocab, rev_enc_b_vocab = data_utils.initialize_vocabulary(enc_b_vocab_path)
     dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
     with tf.Session() as sess:
         # Create model.
         print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
         model = create_model(sess,
-                             len(enc_vocab),
+                             len(enc_a_vocab),
+                             len(enc_b_vocab),
                              len(dec_vocab),
                              False,
                              force_create_fresh=FLAGS.force_make_data)
 
         # Read data into buckets and compute their sizes.
         print("Reading train/dev/test data (limit: %d)." % FLAGS.max_train_data_size)
-        train_set = read_data(from_train, to_train, FLAGS.max_train_data_size)
-        dev_set = read_data(from_dev, to_dev)
+        train_set = read_data(enc_a_train, enc_b_train, dec_train, FLAGS.max_train_data_size)
+        dev_set = read_data(enc_a_dev, to_dev)
         test_set = read_data(from_test, to_test)
 
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
@@ -279,18 +284,12 @@ def train():
                                                                        rev_dec_vocab,
                                                                        test_set,
                                                                        test_tokenized)
-                print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
-                    train_loss,
-                    train_perplexity,
-                    train_accuracy))
-                print("  dev: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
-                    dev_loss,
-                    dev_perplexity,
-                    dev_accuracy))
-                print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" % (
-                    test_loss,
-                    test_perplexity,
-                    test_accuracy))
+                print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
+                      % (train_loss, train_perplexity, train_accuracy))
+                print("  dev: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
+                      % (dev_loss, dev_perplexity, dev_accuracy))
+                print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
+                      % (test_loss, test_perplexity, test_accuracy))
                 sys.stdout.flush()
                 if best_dev_loss is None or dev_loss < best_dev_loss:
                     suboptimal_loss_steps = 0
@@ -303,8 +302,8 @@ def train():
                     if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
                         print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
                         break
-        print("Best loss achieved: %.2f (train) %.2f (*dev) %.2f (test)" %
-              (best_train_loss, best_dev_loss, best_test_loss))
+        print("Best loss achieved at step %d: %.2f (train) %.2f (*dev) %.2f (test)"
+              % (best_loss_step, best_train_loss, best_dev_loss, best_test_loss))
 
 
 def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_tokenized):
@@ -318,12 +317,12 @@ def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_token
         for index in xrange(0, len(bucket_data), in_model.batch_size):
             sequences_tokenized = in_dataset_tokenized[index: index + in_model.batch_size]
 
-            enc_in, dec_in, dec_tgt, target_weights = \
+            enc_a_in, enc_b_in, dec_in, dec_tgt, target_weights = \
                 in_model.get_batch({bucket_id: bucket_data}, bucket_id, start_index=index)
             # Get output logits for the sentence.
             _, loss, output_logits = in_model.step(in_session,
-                                                   enc_in,
-                                                   enc_in,
+                                                   enc_a_in,
+                                                   enc_b_in,
                                                    dec_in,
                                                    dec_tgt,
                                                    target_weights,
@@ -341,9 +340,6 @@ def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_token
                                                     in_rev_dec_vocab,
                                                     encoder_tokens)
                 results.append(int(decoder_tokens == final_output))
-            # print('Gold: ', ' '.join(map(str, decoder_inputs)))
-            # print('Pred: ', ' '.join(map(str, outputs)))
-            # print("Processed {} out of {} data points".format(index, len(bucket_data)))
     in_model.batch_size = original_batch_size
     loss = np.mean(losses)
     perplexity = get_perplexity(loss)
@@ -365,13 +361,15 @@ def get_decoded_sequence(in_decoder_argmax, in_rev_vocab, in_encoder_sequence):
 def decode():
     with tf.Session() as sess:
         # Load vocabularies.
-        en_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.from')
-        fr_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.to')
-        en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
-        fr_vocab, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+        enc_vocab_path_a = os.path.join(FLAGS.data_dir, 'vocab.enc_a')
+        enc_vocab_path_b = os.path.join(FLAGS.data_dir, 'vocab.enc_b')
+        dec_vocab_path = os.path.join(FLAGS.data_dir, 'vocab.dec')
+        enc_vocab_a, _ = data_utils.initialize_vocabulary(enc_vocab_path_a)
+        enc_vocab_b, _ = data_utils.initialize_vocabulary(enc_vocab_path_b)
+        dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
 
         # Create model and load parameters.
-        model = create_model(sess, len(en_vocab), len(fr_vocab), True)
+        model = create_model(sess, len(enc_vocab_a), len(enc_vocab_a), len(dec_vocab), True)
         model.batch_size = 1  # We decode one sentence at a time.
 
         # Decode from standard input.
@@ -380,8 +378,10 @@ def decode():
         sentence = sys.stdin.readline()
         while sentence:
             input_tokens = data_utils.basic_tokenizer(tf.compat.as_bytes(sentence))
+            pos_tags = nltk.pos_tag(input_tokens)
             # Get token-ids for the input sentence.
-            token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
+            token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), enc_vocab_a)
+            pos_tag_ids = data_utils.sentence_to_token_ids(pos_tags, enc_vocab_b)
             # Which bucket does it belong to?
             bucket_id = len(_buckets) - 1
             for i, bucket in enumerate(_buckets):
@@ -392,12 +392,12 @@ def decode():
                 logging.warning('Sentence truncated: %s', sentence)
 
             # Get a 1-element batch to feed the sentence to the model.
-            encoder_inputs, decoder_inputs, decoder_targets, target_weights = \
-                model.get_batch({bucket_id: [(token_ids, [])]}, bucket_id)
+            encoder_inputs_a, encoder_inputs_b, decoder_inputs, decoder_targets, target_weights = \
+                model.get_batch({bucket_id: [(token_ids, pos_tags, [])]}, bucket_id)
             # Get output logits for the sentence.
             _, _, output_logits = model.step(sess,
-                                             encoder_inputs,
-                                             encoder_inputs,
+                                             encoder_inputs_a,
+                                             encoder_inputs_b,
                                              decoder_inputs,
                                              decoder_targets,
                                              target_weights,
@@ -406,7 +406,7 @@ def decode():
             # This is a greedy decoder - outputs are just argmaxes of output_logits.
 
             outputs = [logit[0] for logit in output_logits]
-            final_outputs = get_decoded_sequence(outputs, rev_fr_vocab, input_tokens)
+            final_outputs = get_decoded_sequence(outputs, rev_dec_vocab, input_tokens)
             print(" ".join(final_outputs))
             print("> ", end="")
             sys.stdout.flush()
