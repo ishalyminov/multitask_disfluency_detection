@@ -132,6 +132,51 @@ def read_data(encoder_input, decoder_input, max_size=None):
     return data_set
 
 
+def read_data_dual_encoder(encoder_a_input, encoder_b_input, decoder_input, max_size=None):
+    """Read data from source and target files and put into buckets.
+
+    Args:
+        source_path: path to the files with token-ids for the source language.
+        target_path: path to the file with token-ids for the target language;
+            it must be aligned with the source file: n-th line contains the desired
+            output for n-th line from the source_path.
+        max_size: maximum number of lines to read, all other will be ignored;
+            if 0 or None, data files will be read completely (no limit).
+
+    Returns:
+        data_set: a list of length len(_buckets); data_set[n] contains a list of
+            (source, target) pairs read from the provided data files that fit
+            into the n-th bucket, i.e., such that len(source) < _buckets[n][0] and
+            len(target) < _buckets[n][1]; source and target are lists of token-ids.
+    """
+    data_set = [[] for _ in _buckets]
+    with tf.gfile.GFile(encoder_a_input, mode="r") as encoder_a_input_file, \
+         tf.gfile.GFile(encoder_b_input, mode="r") as encoder_b_input_file, \
+         tf.gfile.GFile(decoder_input, mode="r") as decoder_input_file:
+        enc_a_input, enc_b_input, dec_input = (encoder_a_input_file.readline(),
+                                               encoder_b_input_file.readline(),
+                                               decoder_input_file.readline())
+        counter = 0
+        while enc_a_input and enc_b_input and decoder_input and (not max_size or counter < max_size):
+            counter += 1
+            if counter % 100 == 0:
+                print("  reading data line %d" % counter)
+                sys.stdout.flush()
+            encoder_a_ids = [int(x) for x in enc_a_input.split()]
+            encoder_b_ids = [int(x) for x in enc_b_input.split()]
+            decoder_ids = [int(x) for x in decoder_input.split()]
+            decoder_ids.append(data_utils.EOS_ID)
+
+            for bucket_id, (source_size, target_size) in enumerate(_buckets):
+                if len(encoder_a_ids) < source_size and len(decoder_ids) < target_size:
+                    data_set[bucket_id].append([encoder_a_ids, encoder_b_ids, decoder_ids])
+                    break
+            enc_a_input, enc_b_input, decoder_input = (encoder_a_input_file.readline(),
+                                                       encoder_b_input_file.readline(),
+                                                       decoder_input_file.readline())
+    return data_set
+
+
 def create_model(session, enc_a_vocab_size, enc_b_vocab_size, dec_vocab_size, forward_only, force_create_fresh=False):
     """Create translation model and initialize or load parameters in session."""
     dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
@@ -213,9 +258,12 @@ def train():
 
         # Read data into buckets and compute their sizes.
         print("Reading train/dev/test data (limit: %d)." % FLAGS.max_train_data_size)
-        train_set = read_data(enc_a_train, enc_b_train, dec_train, FLAGS.max_train_data_size)
-        dev_set = read_data(enc_a_dev, to_dev)
-        test_set = read_data(from_test, to_test)
+        train_set = read_data_dual_encoder(enc_a_train,
+                                           enc_b_train,
+                                           dec_train,
+                                           FLAGS.max_train_data_size)
+        dev_set = read_data_dual_encoder(enc_a_dev, enc_b_dev, dec_dev)
+        test_set = read_data_dual_encoder(enc_a_test, enc_b_test, dec_test)
 
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
         train_total_size = float(sum(train_bucket_sizes))
@@ -260,9 +308,8 @@ def train():
             if current_step % FLAGS.steps_per_checkpoint == 0:
                 # Print statistics for the previous epoch.
                 perplexity = get_perplexity(loss)
-                print("global step %d learning rate %.4f loss %.2f perplexity "
-                      "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                                loss, perplexity))
+                print("global step %d learning rate %.4f loss %.2f perplexity %.2f"
+                      % (model.global_step.eval(), model.learning_rate.eval(), loss, perplexity))
                 loss = 0.0
                 # Decrease learning rate if no improvement was seen over last 3 times.
                 if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
@@ -300,7 +347,8 @@ def train():
                 else:
                     suboptimal_loss_steps += 1
                     if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
-                        print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
+                        print("Early stopping after %d checkpoints"
+                              % FLAGS.early_stopping_checkpoints)
                         break
         print("Best loss achieved at step %d: %.2f (train) %.2f (*dev) %.2f (test)"
               % (best_loss_step, best_train_loss, best_dev_loss, best_test_loss))
