@@ -49,6 +49,7 @@ from copy_seq2seq import data_utils, dual_encoder_copy_seq2seq_model
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
+tf.app.flags.DEFINE_float("word_dropout_prob", 0.0, "Word dropout probability during training")
 tf.app.flags.DEFINE_integer("batch_size", 16, "Batch size to use during training.")  # 8
 tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.")  # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
@@ -225,6 +226,7 @@ def train():
                                              to_test_data,
                                              FLAGS.from_vocab_size,
                                              FLAGS.to_vocab_size,
+                                             word_dropout_prob=FLAGS.word_dropout_prob,
                                              combined_vocabulary=FLAGS.combined_vocabulary,
                                              force=FLAGS.force_make_data)
     enc_a_train, enc_b_train, dec_train = train_data
@@ -293,7 +295,7 @@ def train():
 
             # Get a batch and make a step.
             encoder_a_inputs, encoder_b_inputs, decoder_inputs, decoder_targets, target_weights = \
-                model.get_batch(train_set, bucket_id)
+                model.get_batch(train_set, bucket_id, word_dropout_prob=FLAGS.word_dropout_prob)
             _, step_loss, _ = model.step(sess,
                                          encoder_a_inputs,
                                          encoder_b_inputs,
