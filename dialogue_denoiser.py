@@ -342,7 +342,7 @@ def train():
                 if best_dev_loss is None or dev_loss < best_dev_loss:
                     suboptimal_loss_steps = 0
                     best_train_loss, best_dev_loss, best_test_loss = train_loss, dev_loss, test_loss
-                    best_loss_step = model.global_step
+                    best_loss_step = model.global_step.eval()
                     # Save checkpoint and zero timer and loss.
                     model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 else:
