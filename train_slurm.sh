@@ -22,5 +22,6 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --from_test_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-tst.txt/encoder.txt \
   --to_test_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-tst.txt/decoder.txt \
   --combined_vocabulary \
+  --word_dropout_prob 0.2 \
   --force_make_data
 exit 0

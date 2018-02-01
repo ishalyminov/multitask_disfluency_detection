@@ -50,6 +50,9 @@ tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("word_dropout_prob", 0.0, "Word dropout probability during training")
+tf.app.flags.DEFINE_float("early_stopping_threshold",
+                          0.01,
+                          "Loss decreasing less than this (relatively) will cause early stopping")
 tf.app.flags.DEFINE_integer("batch_size", 16, "Batch size to use during training.")  # 8
 tf.app.flags.DEFINE_integer("size", 64, "Size of each model layer.")  # 32
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
@@ -226,20 +229,20 @@ def train():
                                              to_test_data,
                                              FLAGS.from_vocab_size,
                                              FLAGS.to_vocab_size,
-                                             word_dropout_prob=FLAGS.word_dropout_prob,
                                              combined_vocabulary=FLAGS.combined_vocabulary,
                                              force=FLAGS.force_make_data)
     enc_a_train, enc_b_train, dec_train = train_data
     enc_a_dev, enc_b_dev, dec_dev = dev_data
     enc_a_test, enc_b_test, dec_test = test_data
 
-    train_tokenized = [(from_line, to_line)
+    encoder_size, decoder_size = _buckets[-1]
+    train_tokenized = [(from_line + [data_utils.PAD_ID] * (encoder_size - len(from_line)), to_line)
                        for from_line, to_line in zip(data_utils.tokenize_data(from_train_data),
                                                      data_utils.tokenize_data(to_train_data))]
-    dev_tokenized = [(from_line, to_line)
+    dev_tokenized = [(from_line + [data_utils.PAD_ID] * (encoder_size - len(from_line)), to_line)
                      for from_line, to_line in zip(data_utils.tokenize_data(from_dev_data),
                                                    data_utils.tokenize_data(to_dev_data))]
-    test_tokenized = [(from_line, to_line)
+    test_tokenized = [(from_line + [data_utils.PAD_ID] * (encoder_size - len(from_line)), to_line)
                       for from_line, to_line in zip(data_utils.tokenize_data(from_test_data),
                                                     data_utils.tokenize_data(to_test_data))]
 
@@ -341,7 +344,7 @@ def train():
                 print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
                       % (test_loss, test_perplexity, test_accuracy))
                 sys.stdout.flush()
-                if best_dev_loss is None or dev_loss < best_dev_loss:
+                if best_dev_loss is None or FLAGS.early_stopping_threshold < (best_dev_loss - dev_loss) / (best_dev_loss + 1e-12):
                     suboptimal_loss_steps = 0
                     best_train_loss, best_dev_loss, best_test_loss = train_loss, dev_loss, test_loss
                     best_loss_step = model.global_step.eval()
