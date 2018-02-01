@@ -494,8 +494,9 @@ def evaluate():
         dec_vocab, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
         model = create_model(sess, len(enc_a_vocab), len(enc_b_vocab), len(dec_vocab), forward_only=True)
 
+        encoder_size, decoder_size = _buckets[-1]
         dev_set = read_data_dual_encoder(enc_a_dev, enc_b_dev, dec_dev)
-        dev_tokenized = [(from_line, to_line)
+        dev_tokenized = [(from_line + [data_utils.PAD_ID] * (encoder_size - len(from_line)), to_line)
                          for from_line, to_line in zip(data_utils.tokenize_data(enc_a_dev_path),
                                                        data_utils.tokenize_data(dec_dev_path))]
         loss, perplexity, accuracy = eval_model(sess, model, rev_dec_vocab, dev_set, dev_tokenized)
