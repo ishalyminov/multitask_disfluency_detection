@@ -15,5 +15,5 @@ module load cuda80/blas/8.0.61 cuda80/fft/8.0.61 cuda80/gdk/352.79 cuda80/nsight
 cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_denoiser/bin/python -m dialogue_denoiser \
   --decode \
   --data_dir ../babi_tools/dialogue_denoiser_data \
-  --train_dir ckpt
+  --train_dir ckpt_
 exit 0

@@ -14,7 +14,7 @@ module load cuda80/blas/8.0.61 cuda80/fft/8.0.61 cuda80/gdk/352.79 cuda80/nsight
 # execute application (read in arguments from command line)
 cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_denoiser/bin/python -m dialogue_denoiser \
   --data_dir ../babi_tools/dialogue_denoiser_data \
-  --train_dir ckpt_ \
+  --train_dir ckpt \
   --from_train_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-trn.txt/encoder.txt \
   --to_train_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-trn.txt/decoder.txt \
   --from_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/encoder.txt \
@@ -22,5 +22,7 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --from_test_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-tst.txt/encoder.txt \
   --to_test_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-tst.txt/decoder.txt \
   --combined_vocabulary \
+  --word_dropout_prob 0.2 \
+  --early_stopping_threshold 0.1 \
   --force_make_data
 exit 0
