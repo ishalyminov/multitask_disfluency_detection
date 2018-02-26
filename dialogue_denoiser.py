@@ -43,7 +43,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from copy_seq2seq import data_utils, seq2seq_model
 
-tf.app.flags.DEFINE_float("learning_rate", 0.1, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
 tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("word_dropout_prob", 0.0, "Word dropout probability during training")
@@ -147,7 +147,8 @@ def create_model(session, from_vocab_size, to_vocab_size, forward_only, force_cr
                                        FLAGS.learning_rate,
                                        FLAGS.learning_rate_decay_factor,
                                        forward_only=forward_only,
-                                       dtype=dtype)
+                                       dtype=dtype,
+                                       num_samples=0)
     if force_create_fresh:
         if os.path.exists(FLAGS.train_dir):
             shutil.rmtree(FLAGS.train_dir)
@@ -267,11 +268,11 @@ def train():
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
 
-                train_loss, train_perplexity, train_accuracy = eval_model(sess,
+                '''train_loss, train_perplexity, train_accuracy = eval_model(sess,
                                                                           model,
                                                                           rev_dec_vocab,
                                                                           train_set,
-                                                                          train_tokenized)
+                                                                          train_tokenized)'''
                 dev_loss, dev_perplexity, dev_accuracy = eval_model(sess,
                                                                     model,
                                                                     rev_dec_vocab,
@@ -282,8 +283,8 @@ def train():
                                                                        rev_dec_vocab,
                                                                        test_set,
                                                                        test_tokenized)
-                print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
-                      % (train_loss, train_perplexity, train_accuracy))
+                '''print("  train: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
+                      % (train_loss, train_perplexity, train_accuracy))'''
                 print("  dev: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
                       % (dev_loss, dev_perplexity, dev_accuracy))
                 print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f"
@@ -291,21 +292,22 @@ def train():
                 sys.stdout.flush()
 
                 if best_dev_loss is None or FLAGS.early_stopping_threshold < (best_dev_loss - dev_loss) / (best_dev_loss + 1e-12):
-                  suboptimal_loss_steps = 0
-                  best_train_loss, best_dev_loss, best_test_loss = train_loss, dev_loss, test_loss
-                  best_loss_step = model.global_step
-                  # Save checkpoint and zero timer and loss.
-                  model.saver.save(sess, checkpoint_path, global_step=model.global_step)
+                    suboptimal_loss_steps = 0
+                    best_dev_loss = dev_loss
+                    # best_train_loss, best_dev_loss, best_test_loss = train_loss, dev_loss, test_loss
+                    best_loss_step = model.global_step
+                    # Save checkpoint and zero timer and loss.
+                    model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 else:
-                  suboptimal_loss_steps += 1
-                  if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
-                    print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
-                    break
-        print("Best loss achieved: %.2f (train) %.2f (*dev) %.2f (test)"
-              % (best_train_loss, best_dev_loss, best_test_loss))
+                    suboptimal_loss_steps += 1
+                    if FLAGS.early_stopping_checkpoints <= suboptimal_loss_steps:
+                        print("Early stopping after %d checkpoints" % FLAGS.early_stopping_checkpoints)
+                        break
+        '''print("Best loss achieved: %.2f (train) %.2f (*dev) %.2f (test)"
+              % (best_train_loss, best_dev_loss, best_test_loss))'''
 
 
-def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_tokenized):
+def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_tokenized, log_file=None):
     original_batch_size = in_model.batch_size
     in_model.batch_size = 64
 
@@ -338,9 +340,10 @@ def eval_model(in_session, in_model, in_rev_dec_vocab, dataset, in_dataset_token
                                                     in_rev_dec_vocab,
                                                     encoder_tokens)
                 results.append(int(decoder_tokens == final_output))
-            # print('Gold: ', ' '.join(map(str, decoder_inputs)))
-            # print('Pred: ', ' '.join(map(str, outputs)))
-            # print("Processed {} out of {} data points".format(index, len(bucket_data)))
+                if not results[-1] and log_file:
+                    if data_utils._PAD in encoder_tokens:
+                        final_encoder_tokens = encoder_tokens[:encoder_tokens.index(data_utils._PAD)]
+                    log_file.write(';'.join([' '.join(final_encoder_tokens), ' '.join(decoder_tokens), ' '.join(final_output)]) + '\n')
     in_model.batch_size = original_batch_size
     loss = np.mean(losses)
     perplexity = get_perplexity(loss)
@@ -428,10 +431,11 @@ def evaluate():
 
         encoder_size, decoder_size = _buckets[-1]
         dev_set = read_data(from_dev, to_dev)
-        dev_tokenized = [(from_line + [data_utils.PAD_ID] * (encoder_size - len(from_line)), to_line)
+        dev_tokenized = [(from_line + [data_utils._PAD] * (encoder_size - len(from_line)), to_line)
                          for from_line, to_line in zip(data_utils.tokenize_data(from_dev_path),
                                                        data_utils.tokenize_data(to_dev_path))]
-        loss, perplexity, accuracy = eval_model(sess, model, rev_fr_vocab, dev_set, dev_tokenized)
+        with open('eval.log', 'w') as eval_log:
+            loss, perplexity, accuracy = eval_model(sess, model, rev_fr_vocab, dev_set, dev_tokenized, log_file=eval_log)
         print("  test: loss %.2f perplexity %.2f per-utterance accuracy %.2f" %
               (loss, perplexity, accuracy))
 

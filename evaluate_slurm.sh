@@ -16,7 +16,7 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --evaluate \
   --data_dir ../babi_tools/dialogue_denoiser_data \
   --train_dir ckpt \
-  --from_dev_data ../babi_tools/dialogue_denoiser_data_dstc6/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/encoder.txt \
-  --to_dev_data ../babi_tools/dialogue_denoiser_data_dstc6/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/decoder.txt \
+  --from_dev_data ../babi_tools/dialogue_denoiser_data_dstc6_3000/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/encoder.txt \
+  --to_dev_data ../babi_tools/dialogue_denoiser_data_dstc6_3000/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/decoder.txt \
   --force_make_data
 exit 0
