@@ -21,6 +21,7 @@ cd /home/ishalyminov/data/dialogue_denoiser && /home/ishalyminov/Envs/dialogue_d
   --to_dev_data ../babi_tools/dialogue_denoiser_data/dialog-babi-task1-API-calls-dev.txt/decoder.txt \
   --from_test_data ../babi_tools/dialogue_denoiser_data_dstc6_3000/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/encoder.txt \
   --to_test_data ../babi_tools/dialogue_denoiser_data_dstc6_3000/dialog-task1API-kb1_atmosphere-distr0.5-trn10000.txt/decoder.txt \
+  --size 16 \
   --combined_vocabulary \
   --word_dropout_prob 0.7 \
   --early_stopping_threshold 0.1

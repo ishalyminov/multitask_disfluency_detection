@@ -12,13 +12,13 @@ import os
 import numpy as np
 import nltk
 
-from deep_disfluency.corpus import swda
+from swda import swda
 
 
 # In[46]:
 
 
-reader = swda.CorpusReader('../swda/swda')
+reader = swda.CorpusReader('swda/swda')
 
 
 # In[92]:
@@ -130,12 +130,10 @@ print filter_restarts_without_repair('Actually, [ I + ] guess I am [I, + I], {F 
 # In[172]:
 
 
-pipeline = [
-    (extract_restarts_with_repair_and_nonsentece, filter_restarts_with_repair_and_nonsentece),
-    (extract_restarts_with_repair, filter_restarts_with_repair),
-    (extract_restarts_without_repair, filter_restarts_without_repair),
-    (extract_nonsentence, filter_nonsentence),
-]
+pipeline = [(extract_restarts_with_repair_and_nonsentece, filter_restarts_with_repair_and_nonsentece),
+            (extract_restarts_with_repair, filter_restarts_with_repair),
+            (extract_restarts_without_repair, filter_restarts_without_repair),
+            (extract_nonsentence, filter_nonsentence)]
 disfluency_stats = defaultdict(lambda: 0)
 parallel_corpus = []
 for utt in reader.iter_utterances(display_progress=False):
@@ -169,7 +167,7 @@ for utt in reader.iter_utterances(display_progress=False):
     fluent = True
     for extract_step, filter_step in pipeline:
         disfluencies = extract_step(utt_original)
-        if not len(disfluencies):
+        if len(disfluencies):
             fluent = False
             break
     if fluent and len(re.findall('\w+', utt_clean)):
@@ -206,7 +204,8 @@ for key, value in disfluency_stats.iteritems():
 out_folder = 'swda_parallel_corpus'
 if not os.path.exists(out_folder):
     os.makedirs(out_folder)
-with open(os.path.join(out_folder, 'encoder.txt'), 'w') as encoder_out,      open(os.path.join(out_folder, 'decoder.txt'), 'w') as decoder_out:
+with open(os.path.join(out_folder, 'encoder.txt'), 'w') as encoder_out,\
+     open(os.path.join(out_folder, 'decoder.txt'), 'w') as decoder_out:
     for utt_from, utt_to in final_corpus:
         print >>encoder_out, ' '.join(utt_from)
         print >>decoder_out, ' '.join(utt_to)
