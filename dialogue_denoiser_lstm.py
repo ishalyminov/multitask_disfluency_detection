@@ -12,11 +12,9 @@ from data_utils import make_vocabulary, vectorize_sequences, to_one_hot
 random.seed(273)
 np.random.seed(273)
 
-ENCODER_DATA = 'swda_parallel_corpus/encoder.txt'
-DECODER_DATA = 'swda_parallel_corpus/decoder.txt'
 
 TRAINSET_RATIO = 0.8
-VOCABULARY_SIZE = 10000
+VOCABULARY_SIZE = 15000
 MAX_INPUT_LENGTH = 80
 
 
@@ -50,26 +48,30 @@ def make_tagger_data_points(in_encoder_lines, in_decoder_lines):
     return result
 
 
-def make_dataset(in_encoder_lines, in_decoder_lines, vocab=None):
+def make_dataset(in_data_points, in_vocab):
+    X = vectorize_sequences(map(itemgetter(0), in_data_points), in_vocab, MAX_INPUT_LENGTH)
+    y = np.asarray([to_one_hot(tags, 2)
+                    for tags in keras.preprocessing.sequence.pad_sequences(map(itemgetter(1), in_data_points), value=0, maxlen=MAX_INPUT_LENGTH)])
+    return X, y
+
+def make_training_data(in_encoder_lines, in_decoder_lines):
     data_points = make_tagger_data_points(in_encoder_lines, in_decoder_lines)
-    shuffle(data_points)
-    trainset_size = int(TRAINSET_RATIO * len(data_points))
-    devset_size = int((len(data_points) - trainset_size) / 2.0)
-    train, dev, test = (data_points[:trainset_size],
-                        data_points[trainset_size: trainset_size + devset_size],
-                        data_points[trainset_size + devset_size:])
-    if not vocab:
-        vocab, _ = make_vocabulary(map(itemgetter(0), train), VOCABULARY_SIZE)
-    X_train = vectorize_sequences(map(itemgetter(0), train), vocab, MAX_INPUT_LENGTH)
-    y_train = np.asarray([to_one_hot(tags, 2)
-                          for tags in keras.preprocessing.sequence.pad_sequences(map(itemgetter(1), train), value=0, maxlen=MAX_INPUT_LENGTH)])
-    X_dev = vectorize_sequences(map(itemgetter(0), dev), vocab, MAX_INPUT_LENGTH)
-    y_dev = np.asarray([to_one_hot(tags, 2)
-                        for tags in keras.preprocessing.sequence.pad_sequences(map(itemgetter(1), dev), value=0, maxlen=MAX_INPUT_LENGTH)])
-    X_test = vectorize_sequences(map(itemgetter(0), test), vocab, MAX_INPUT_LENGTH)
-    y_test = np.asarray([to_one_hot(tags, 2)
-                         for tags in keras.preprocessing.sequence.pad_sequences(map(itemgetter(1), test), value=0, maxlen=MAX_INPUT_LENGTH)])
+    train, dev, test = make_dataset_split(data_points, TRAINSET_RATIO)
+    vocab, _ = make_vocabulary(map(itemgetter(0), train), VOCABULARY_SIZE)
+    X_train, y_train = make_dataset(train, vocab)
+    X_dev, y_dev = make_dataset(dev, vocab)
+    X_test, y_test = make_dataset(test, vocab)
     return vocab, (X_train, y_train), (X_dev, y_dev), (X_test, y_test)
+
+
+def make_dataset_split(in_data_points, trainset_ratio):
+    shuffle(in_data_points)
+    trainset_size = int(TRAINSET_RATIO * len(in_data_points))
+    devset_size = int((len(in_data_points) - trainset_size) / 2.0)
+    train, dev, test = (in_data_points[:trainset_size],
+                        in_data_points[trainset_size: trainset_size + devset_size],
+                        in_data_points[trainset_size + devset_size:])
+    return train, dev, test
 
 
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number, lr):
