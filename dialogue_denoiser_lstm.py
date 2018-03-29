@@ -48,20 +48,24 @@ def make_tagger_data_points(in_encoder_lines, in_decoder_lines):
     return result
 
 
-def make_dataset(in_data_points, in_vocab):
+def make_dataset(in_data_points, in_vocab, in_label_vocab):
     X = vectorize_sequences(map(itemgetter(0), in_data_points), in_vocab, MAX_INPUT_LENGTH)
-    y = np.asarray([to_one_hot(tags, 2)
-                    for tags in keras.preprocessing.sequence.pad_sequences(map(itemgetter(1), in_data_points), value=0, maxlen=MAX_INPUT_LENGTH)])
+    labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
+    y = np.asarray([to_one_hot(label, len(in_label_vocab)) for label in labels]) 
     return X, y
 
+
 def make_training_data(in_encoder_lines, in_decoder_lines):
-    data_points = make_tagger_data_points(in_encoder_lines, in_decoder_lines)
+    # data_points = make_tagger_data_points(in_encoder_lines, in_decoder_lines)
+    data_points = [(enc_line, dec_line)
+                   for enc_line, dec_line in zip(in_encoder_lines, in_decoder_lines)]
     train, dev, test = make_dataset_split(data_points, TRAINSET_RATIO)
     vocab, _ = make_vocabulary(map(itemgetter(0), train), VOCABULARY_SIZE)
-    X_train, y_train = make_dataset(train, vocab)
-    X_dev, y_dev = make_dataset(dev, vocab)
-    X_test, y_test = make_dataset(test, vocab)
-    return vocab, (X_train, y_train), (X_dev, y_dev), (X_test, y_test)
+    label_vocab, _ = make_vocabulary(map(itemgetter(1), train), VOCABULARY_SIZE)
+    X_train, y_train = make_dataset(train, vocab, label_vocab)
+    X_dev, y_dev = make_dataset(dev, vocab, label_vocab)
+    X_test, y_test = make_dataset(test, vocab, label_vocab)
+    return vocab, label_vocab, (X_train, y_train), (X_dev, y_dev), (X_test, y_test)
 
 
 def make_dataset_split(in_data_points, trainset_ratio):
@@ -145,4 +149,6 @@ def load(in_model_folder):
     model = keras.models.load_model(os.path.join(in_model_folder, 'model.h5'))
     with open(os.path.join(in_model_folder, 'vocab.json')) as vocab_in:
         vocab = json.load(vocab_in)
-    return model, vocab
+    with open(os.path.join(in_model_folder, 'label_vocab.json')) as label_vocab_in:
+        label_vocab = json.load(label_vocab_in)
+    return model, vocab, label_vocab
