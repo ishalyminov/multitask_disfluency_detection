@@ -17,6 +17,10 @@ TRAINSET_RATIO = 0.8
 VOCABULARY_SIZE = 15000
 MAX_INPUT_LENGTH = 80
 
+MODEL_NAME = 'model.h5'
+VOCABULARY_NAME = 'vocab.json'
+LABEL_VOCABULARY_NAME = 'label_vocab.json'
+
 
 def load_dataset(in_encoder_input, in_decoder_input):
     with open(in_encoder_input) as encoder_in:
@@ -146,9 +150,21 @@ def evaluate(in_model, X, y):
 
 
 def load(in_model_folder):
-    model = keras.models.load_model(os.path.join(in_model_folder, 'model.h5'))
-    with open(os.path.join(in_model_folder, 'vocab.json')) as vocab_in:
+    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME))
+    with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
-    with open(os.path.join(in_model_folder, 'label_vocab.json')) as label_vocab_in:
+    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
     return model, vocab, label_vocab
+
+
+def save(in_model, in_vocab, in_label_vocab, in_model_folder, save_model=False):
+    if not os.path.exists(in_model_folder):
+        os.makedirs(in_model_folder)
+    if save_model:
+        in_model.save(os.path.join(in_model_folder, MODEL_NAME))
+    with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
+        json.dump(in_vocab, vocab_out)
+    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
+        json.dump(in_label_vocab, label_vocab_out)
+
