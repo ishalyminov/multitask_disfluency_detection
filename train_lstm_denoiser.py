@@ -1,3 +1,4 @@
+import string
 from argparse import ArgumentParser
 import os
 
@@ -11,7 +12,7 @@ from dialogue_denoiser_lstm import (create_model,
                                     make_dataset,
                                     MAX_INPUT_LENGTH,
                                     VOCABULARY_SIZE,
-                                    MODEL_NAME)
+                                    MODEL_NAME, MAX_CHAR_INPUT_LENGTH)
 
 
 def configure_argument_parser():
@@ -39,7 +40,13 @@ def main(in_dataset_folder, in_model_folder):
                                   label_vocab)
     save(None, vocab, label_vocab, in_model_folder, save_model=False)
 
-    model = create_model(len(vocab), 128, MAX_INPUT_LENGTH, len(label_vocab), 0.01)
+    model = create_model(len(vocab),
+                         128,
+                         len(string.printable),
+                         MAX_INPUT_LENGTH,
+                         MAX_CHAR_INPUT_LENGTH,
+                         len(label_vocab),
+                         0.01)
     train(model,
           (X_train, y_train),
           (X_dev, y_dev),

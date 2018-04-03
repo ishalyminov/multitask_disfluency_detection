@@ -16,6 +16,8 @@ np.random.seed(273)
 TRAINSET_RATIO = 0.8
 VOCABULARY_SIZE = 15000
 MAX_INPUT_LENGTH = 80
+MEAN_WORD_LENGTH = 8
+MAX_CHAR_INPUT_LENGTH = MAX_INPUT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
 MODEL_NAME = 'model.h5'
 VOCABULARY_NAME = 'vocab.json'
@@ -82,12 +84,55 @@ def make_dataset_split(in_data_points, trainset_ratio):
     return train, dev, test
 
 
-def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number, lr):
-    input_sequence = keras.layers.Input(shape=(in_max_input_length,))
-    embedding = keras.layers.Embedding(in_vocab_size, in_cell_size)(input_sequence)
+def char_cnn_module(in_char_input):
+    """
+        Zhang and LeCun, 2015
+    """
+
+    model = keras.layers.Conv1D(256, 7, activation='relu', name='chars')(in_char_input)
+    model = keras.layers.MaxPool1D(3)(model)
+
+    model = keras.layers.Conv1D(256, 7, activation='relu')(model)
+    model = keras.layers.MaxPool1D(3)(model)
+
+    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
+    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
+    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
+    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
+    model = keras.layers.MaxPool1D(3)(model)
+
+    model = keras.layers.Flatten()(model)
+    model = keras.layers.TimeDistributed(model)
+
+    return model
+
+
+def rnn_module(in_word_input, in_vocab_size, in_cell_size):
+    embedding = keras.layers.Embedding(in_vocab_size, in_cell_size)(in_word_input)
     lstm = keras.layers.LSTM(in_cell_size, return_sequences=True)(embedding)
-    output = keras.layers.Dense(in_classes_number, activation='softmax')(lstm)
-    model = keras.Model(inputs=[input_sequence], outputs=[output])
+
+    return lstm
+
+
+def create_model(in_vocab_size,
+                 in_char_vocab_size,
+                 in_cell_size,
+                 in_max_input_length,
+                 in_max_char_input_length,
+                 in_classes_number,
+                 lr):
+    word_input = keras.layers.Input(shape=(in_max_input_length,))
+    char_input = keras.layers.Input(shape=(in_max_char_input_length, in_char_vocab_size,))
+    rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
+    char_cnn = char_cnn_module(char_input)
+
+    rnn_cnn_combined = keras.layers.Concatenate(axis=-1)([rnn, char_cnn])
+    output = keras.layers.Dense(1024, activation='relu')(rnn_cnn_combined)
+    output = keras.layers.Dropout(0.5)(output)
+    output = keras.layers.Dense(1024, activation='relu')(output)
+    output = keras.layers.Dropout(0.5)(output)
+    output = keras.layers.Dense(in_classes_number, activation='softmax', name='labels')(output)
+    model = keras.Model(inputs=[word_input, char_input], outputs=[output])
 
     # mean absolute error, accuracy
     opt = keras.optimizers.Adam(lr=lr)
