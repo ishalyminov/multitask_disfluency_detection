@@ -14,8 +14,8 @@ from dialogue_denoiser_lstm import (load_dataset,
 
 def configure_argument_parser():
     parser = ArgumentParser(description='Evaluate the LSTM dialogue filter')
-    parser.add_argument('dataset')
     parser.add_argument('model_folder')
+    parser.add_argument('dataset')
 
     return parser
 

@@ -9,7 +9,8 @@ from dialogue_denoiser_lstm import (evaluate,
                                     load,
                                     MODEL_NAME,
                                     save,
-                                    make_dataset)
+                                    make_dataset,
+                                    train)
 
 random.seed(273)
 np.random.seed(273)
@@ -17,8 +18,8 @@ np.random.seed(273)
 
 def configure_argument_parser():
     parser = ArgumentParser(description='Fine-tune a LSTM dialogue filter model')
-    parser.add_argument('dataset')
     parser.add_argument('model_folder')
+    parser.add_argument('dataset')
     parser.add_argument('result_model_folder')
     parser.add_argument('--epochs_number', type=int, default=1)
     parser.add_argument('--trainset_sample_size', type=int, default=10)
@@ -29,9 +30,9 @@ def configure_argument_parser():
 def main(in_dataset, in_model_folder, in_trainset_size, in_epochs_number, in_result_folder):
     model, vocab, label_vocab = load(in_model_folder)
     in_dataset = in_dataset.sample(frac=1).reset_index(drop=True)
-    train, test = in_dataset[:in_trainset_size,:], in_dataset[in_trainset_size:,:]
-    train_data_points = [(tokens, tags) for tokens, tags in zip(train['utterance'], train['tags'])]
-    test_data_points = [(tokens, tags) for tokens, tags in zip(train['utterance'], test['tags'])]
+    trainset, testset = in_dataset[:in_trainset_size], in_dataset[in_trainset_size:]
+    train_data_points = [(tokens, tags) for tokens, tags in zip(trainset['utterance'], trainset['tags'])]
+    test_data_points = [(tokens, tags) for tokens, tags in zip(testset['utterance'], testset['tags'])]
     train_data = make_dataset(train_data_points, vocab, label_vocab)
     test_data = make_dataset(test_data_points, vocab, label_vocab)
 
@@ -45,7 +46,7 @@ def main(in_dataset, in_model_folder, in_trainset_size, in_epochs_number, in_res
           os.path.join(in_result_folder, MODEL_NAME),
           epochs=in_epochs_number,
           batch_size=1)
-    save(model, vocab, label_vocab, in_result_folder)
+    save(model, vocab, label_vocab, in_result_folder, save_model=False)
 
     print 'Testset accuracy: {:.3f}'.format(evaluate(model, *test_data))
 
