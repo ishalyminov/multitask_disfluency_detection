@@ -91,7 +91,7 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
 
     # mean absolute error, accuracy
     opt = keras.optimizers.Adam(lr=lr)
-    model.compile(optimizer=opt, loss='binary_crossentropy')
+    model.compile(optimizer=opt, loss='categorical_crossentropy')
     return model
 
 
