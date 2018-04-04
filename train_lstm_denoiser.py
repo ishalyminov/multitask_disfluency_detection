@@ -41,8 +41,8 @@ def main(in_dataset_folder, in_model_folder):
     save(None, vocab, label_vocab, in_model_folder, save_model=False)
 
     model = create_model(len(vocab),
-                         128,
                          len(string.printable),
+                         128,
                          MAX_INPUT_LENGTH,
                          MAX_CHAR_INPUT_LENGTH,
                          len(label_vocab),

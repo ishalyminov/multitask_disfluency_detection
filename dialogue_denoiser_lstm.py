@@ -89,20 +89,20 @@ def char_cnn_module(in_char_input):
         Zhang and LeCun, 2015
     """
 
-    model = keras.layers.Conv1D(256, 7, activation='relu', name='chars')(in_char_input)
-    model = keras.layers.MaxPool1D(3)(model)
+    # time_dist_input = keras.layers.TimeDistributed(keras.layers.Input(shape=in_char_input.shape[1:]))(in_char_input)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 7, activation='relu', name='chars'))(in_char_input)
+    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
 
-    model = keras.layers.Conv1D(256, 7, activation='relu')(model)
-    model = keras.layers.MaxPool1D(3)(model)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 7, activation='relu'))(model)
+    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
 
-    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
-    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
-    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
-    model = keras.layers.Conv1D(256, 3, activation='relu')(model)
-    model = keras.layers.MaxPool1D(3)(model)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
+    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
+    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
 
-    model = keras.layers.Flatten()(model)
-    model = keras.layers.TimeDistributed(model)
+    model = keras.layers.TimeDistributed(keras.layers.Flatten())(model)
 
     return model
 
@@ -110,7 +110,6 @@ def char_cnn_module(in_char_input):
 def rnn_module(in_word_input, in_vocab_size, in_cell_size):
     embedding = keras.layers.Embedding(in_vocab_size, in_cell_size)(in_word_input)
     lstm = keras.layers.LSTM(in_cell_size, return_sequences=True)(embedding)
-
     return lstm
 
 
@@ -122,16 +121,18 @@ def create_model(in_vocab_size,
                  in_classes_number,
                  lr):
     word_input = keras.layers.Input(shape=(in_max_input_length,))
-    char_input = keras.layers.Input(shape=(in_max_char_input_length, in_char_vocab_size,))
+    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length, in_char_vocab_size,))
     rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
     char_cnn = char_cnn_module(char_input)
 
-    rnn_cnn_combined = keras.layers.Concatenate(axis=-1)([rnn, char_cnn])
+    rnn_cnn_combined = keras.layers.Concatenate()([rnn, char_cnn])
     output = keras.layers.Dense(1024, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.Dense(1024, activation='relu')(output)
     output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.Dense(in_classes_number, activation='softmax', name='labels')(output)
+    output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
+                                                             activation='softmax',
+                                                             name='labels'))(output)
     model = keras.Model(inputs=[word_input, char_input], outputs=[output])
 
     # mean absolute error, accuracy
