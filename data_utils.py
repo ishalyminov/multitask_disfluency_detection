@@ -1,3 +1,4 @@
+import string
 from collections import defaultdict
 from operator import itemgetter
 
@@ -8,6 +9,12 @@ PAD_ID = 0
 UNK_ID = 1
 PAD = '_PAD'
 UNK = '_UNK'
+
+
+def make_char_vocabulary():
+    tokens = ['_PAD', '_UNK'] + list(string.printable)
+    vocab = {token: index for (index, token) in enumerate(tokens)}
+    return vocab
 
 
 def make_vocabulary(in_lines, max_vocabulary_size):

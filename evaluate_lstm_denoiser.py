@@ -1,15 +1,8 @@
-import json
 from argparse import ArgumentParser
-import os
 
 import pandas as pd
 
-from dialogue_denoiser_lstm import (load_dataset,
-                                    make_dataset,
-                                    load,
-                                    make_tagger_data_points,
-                                    evaluate,
-                                    MAX_INPUT_LENGTH)
+from dialogue_denoiser_lstm import make_dataset, load, evaluate
 
 
 def configure_argument_parser():

@@ -6,8 +6,9 @@ import os
 
 import keras
 import numpy as np
+from keras.layers import TimeDistributed, Embedding, Conv1D, MaxPool1D, Flatten, LSTM
 
-from data_utils import make_vocabulary, vectorize_sequences, to_one_hot
+from data_utils import make_vocabulary, vectorize_sequences, to_one_hot, PAD_ID
 
 random.seed(273)
 np.random.seed(273)
@@ -21,6 +22,7 @@ MAX_CHAR_INPUT_LENGTH = MAX_INPUT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
 MODEL_NAME = 'model.h5'
 VOCABULARY_NAME = 'vocab.json'
+CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
 
 
@@ -54,15 +56,25 @@ def make_tagger_data_points(in_encoder_lines, in_decoder_lines):
     return result
 
 
-def make_dataset(in_data_points, in_vocab, in_label_vocab):
-    X = vectorize_sequences(map(itemgetter(0), in_data_points), in_vocab, MAX_INPUT_LENGTH)
+def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
+    utterances_tokenized, tags = (map(itemgetter(0), in_data_points),
+                                  map(itemgetter(1), in_data_points))
+    tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab, MAX_INPUT_LENGTH)
+    chars_vectorized = []
+    for utterance_tokenized in utterances_tokenized:
+        substrings = [' '.join(utterances_tokenized[:i + 1])
+                      for i in xrange(len(utterance_tokenized))]
+        substrings_vectorized = vectorize_sequences(substrings, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += substrings_vectorized
+    chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
+                                                                  value=PAD_ID,
+                                                                  maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
-    y = np.asarray([to_one_hot(label, len(in_label_vocab)) for label in labels]) 
-    return X, y
+    y = np.asarray([to_one_hot(label, len(in_label_vocab)) for label in labels])
+    return (tokens_vectorized, chars_vectorized), y
 
 
 def make_training_data(in_encoder_lines, in_decoder_lines):
-    # data_points = make_tagger_data_points(in_encoder_lines, in_decoder_lines)
     data_points = [(enc_line, dec_line)
                    for enc_line, dec_line in zip(in_encoder_lines, in_decoder_lines)]
     train, dev, test = make_dataset_split(data_points, TRAINSET_RATIO)
@@ -74,9 +86,9 @@ def make_training_data(in_encoder_lines, in_decoder_lines):
     return vocab, label_vocab, (X_train, y_train), (X_dev, y_dev), (X_test, y_test)
 
 
-def make_dataset_split(in_data_points, trainset_ratio):
+def make_dataset_split(in_data_points, trainset_ratio=TRAINSET_RATIO):
     shuffle(in_data_points)
-    trainset_size = int(TRAINSET_RATIO * len(in_data_points))
+    trainset_size = int(trainset_ratio * len(in_data_points))
     devset_size = int((len(in_data_points) - trainset_size) / 2.0)
     train, dev, test = (in_data_points[:trainset_size],
                         in_data_points[trainset_size: trainset_size + devset_size],
@@ -84,46 +96,47 @@ def make_dataset_split(in_data_points, trainset_ratio):
     return train, dev, test
 
 
-def char_cnn_module(in_char_input):
+def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
     """
         Zhang and LeCun, 2015
     """
 
-    # time_dist_input = keras.layers.TimeDistributed(keras.layers.Input(shape=in_char_input.shape[1:]))(in_char_input)
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 7, activation='relu', name='chars'))(in_char_input)
-    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
+    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size))(in_char_input)
+    model = TimeDistributed(Conv1D(256, 7, activation='relu', name='chars'))(model)
+    model = TimeDistributed(MaxPool1D(3))(model)
 
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 7, activation='relu'))(model)
-    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
+    model = TimeDistributed(Conv1D(256, 7, activation='relu'))(model)
+    model = TimeDistributed(MaxPool1D(3))(model)
 
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
-    model = keras.layers.TimeDistributed(keras.layers.Conv1D(256, 3, activation='relu'))(model)
-    model = keras.layers.TimeDistributed(keras.layers.MaxPool1D(3))(model)
+    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
+    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
+    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
+    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
+    model = TimeDistributed(MaxPool1D(3))(model)
 
-    model = keras.layers.TimeDistributed(keras.layers.Flatten())(model)
+    model = TimeDistributed(Flatten())(model)
 
     return model
 
 
 def rnn_module(in_word_input, in_vocab_size, in_cell_size):
-    embedding = keras.layers.Embedding(in_vocab_size, in_cell_size)(in_word_input)
-    lstm = keras.layers.LSTM(in_cell_size, return_sequences=True)(embedding)
+    embedding = Embedding(in_vocab_size, in_cell_size)(in_word_input)
+    lstm = LSTM(in_cell_size, return_sequences=True)(embedding)
     return lstm
 
 
 def create_model(in_vocab_size,
                  in_char_vocab_size,
                  in_cell_size,
+                 in_char_cell_size,
                  in_max_input_length,
                  in_max_char_input_length,
                  in_classes_number,
                  lr):
     word_input = keras.layers.Input(shape=(in_max_input_length,))
-    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length, in_char_vocab_size,))
+    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
     rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
-    char_cnn = char_cnn_module(char_input)
+    char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
     rnn_cnn_combined = keras.layers.Concatenate()([rnn, char_cnn])
     output = keras.layers.Dense(1024, activation='relu')(rnn_cnn_combined)
@@ -155,21 +168,26 @@ def train(in_model,
 
     in_model.fit(X_train,
                  y_train,
-                epochs=epochs,
-                shuffle=True,
-                validation_data=(X_dev, y_dev),
-                callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
-                                                           monitor='val_loss',
-                                                           verbose=1,
-                                                           save_best_only=True,
-                                                           save_weights_only=False,
-                                                           mode='auto',
-                                                           period=1),
-                           keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                         min_delta=0,
-                                                         patience=10,
-                                                         verbose=1,
-                                                        mode='auto')])
+                 epochs=epochs,
+                 shuffle=True,
+                 batch_size=batch_size,
+                 validation_data=(X_dev, y_dev),
+                 callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
+                                                            monitor='val_loss',
+                                                            verbose=1,
+                                                            save_best_only=True,
+                                                            save_weights_only=False,
+                                                            mode='auto',
+                                                            period=1),
+                            keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                          min_delta=0,
+                                                          patience=10,
+                                                          verbose=1,
+                                                          mode='auto'),
+                            keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
+                                                              factor=0.2,
+                                                              patience=5,
+                                                              min_lr=0.001)])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
     print 'Testset loss after {} epochs: {:.3f}'.format(epochs, test_loss)
 
@@ -199,18 +217,22 @@ def load(in_model_folder):
     model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME))
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
+    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
+        char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
-    return model, vocab, label_vocab
+    return model, vocab, char_vocab, label_vocab
 
 
-def save(in_model, in_vocab, in_label_vocab, in_model_folder, save_model=False):
+def save(in_model, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, save_model=False):
     if not os.path.exists(in_model_folder):
         os.makedirs(in_model_folder)
     if save_model:
         in_model.save(os.path.join(in_model_folder, MODEL_NAME))
     with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
         json.dump(in_vocab, vocab_out)
+    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME), 'w') as char_vocab_out:
+        json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
 

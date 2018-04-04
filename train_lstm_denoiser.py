@@ -4,6 +4,7 @@ import os
 
 import pandas as pd
 
+from data_utils import make_char_vocabulary
 from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     evaluate,
@@ -28,21 +29,26 @@ def main(in_dataset_folder, in_model_folder):
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
     vocab, _ = make_vocabulary(trainset['utterance'].values, VOCABULARY_SIZE)
+    char_vocab = make_char_vocabulary()
     label_vocab, _ = make_vocabulary(trainset['tags'].values, VOCABULARY_SIZE)
     X_train, y_train = make_dataset([(tokens, tags) for tokens, tags in zip(trainset['utterance'], trainset['tags'])],
                                     vocab,
+                                    char_vocab,
                                     label_vocab)
     X_dev, y_dev = make_dataset([(tokens, tags) for tokens, tags in zip(devset['utterance'], devset['tags'])], 
-                                vocab, 
+                                vocab,
+                                char_vocab,
                                 label_vocab)
     X_test, y_test = make_dataset([(tokens, tags) for tokens, tags in zip(testset['utterance'], testset['tags'])], 
-                                  vocab, 
+                                  vocab,
+                                  char_vocab,
                                   label_vocab)
-    save(None, vocab, label_vocab, in_model_folder, save_model=False)
+    save(None, vocab, char_vocab, label_vocab, in_model_folder, save_model=False)
 
     model = create_model(len(vocab),
                          len(string.printable),
-                         128,
+                         128,  # word embedding size
+                         32,  # char embedding size
                          MAX_INPUT_LENGTH,
                          MAX_CHAR_INPUT_LENGTH,
                          len(label_vocab),
