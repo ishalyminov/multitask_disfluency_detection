@@ -11,11 +11,12 @@ def configure_argument_parser():
 
 
 def run(in_model_folder):
-    model, vocab = load(in_model_folder)
+    model, vocab, char_vocab, label_vocab = load(in_model_folder)
+    print 'Done loading'
     try:
         line = raw_input().strip()
         while line:
-            print denoise_line(line, model, vocab)
+            print denoise_line(line, model, vocab, char_vocab, label_vocab)
             line = raw_input().strip()
     except EOFError as e:
         pass
@@ -26,3 +27,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     run(args.model_folder)
+

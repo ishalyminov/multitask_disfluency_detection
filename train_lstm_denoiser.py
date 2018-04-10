@@ -46,9 +46,9 @@ def main(in_dataset_folder, in_model_folder):
     save(None, vocab, char_vocab, label_vocab, in_model_folder, save_model=False)
 
     model = create_model(len(vocab),
-                         len(string.printable),
-                         128,  # word embedding size
-                         32,  # char embedding size
+                         len(char_vocab),
+                         256,  # word embedding size
+                         1,  # char embedding size
                          MAX_INPUT_LENGTH,
                          MAX_CHAR_INPUT_LENGTH,
                          len(label_vocab),

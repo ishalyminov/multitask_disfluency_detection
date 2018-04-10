@@ -16,8 +16,8 @@ def configure_argument_parser():
 def main(in_dataset, in_model_folder):
     lines_from, lines_to = in_dataset['utterance'], in_dataset['tags']
     data_points = [(tokens, tags) for tokens, tags in zip(lines_from, lines_to)] 
-    model, vocab, label_vocab = load(in_model_folder)
-    X, y = make_dataset(data_points, vocab, label_vocab)
+    model, vocab, char_vocab, label_vocab = load(in_model_folder)
+    X, y = make_dataset(data_points, vocab, char_vocab, label_vocab)
 
     print 'Accuracy: {:.3f}'.format(evaluate(model, X, y))
 

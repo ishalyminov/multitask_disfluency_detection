@@ -7,6 +7,7 @@ import os
 import keras
 import numpy as np
 from keras.layers import TimeDistributed, Embedding, Conv1D, MaxPool1D, Flatten, LSTM
+from keras import backend as K
 
 from data_utils import make_vocabulary, vectorize_sequences, to_one_hot, PAD_ID
 
@@ -62,16 +63,16 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
     tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab, MAX_INPUT_LENGTH)
     chars_vectorized = []
     for utterance_tokenized in utterances_tokenized:
-        substrings = [' '.join(utterances_tokenized[:i + 1])
+        substrings = [' '.join(utterance_tokenized[:i + 1])
                       for i in xrange(len(utterance_tokenized))]
         substrings_vectorized = vectorize_sequences(substrings, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += substrings_vectorized
+        chars_vectorized += [substrings_vectorized]
     chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
                                                                   value=PAD_ID,
                                                                   maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
     y = np.asarray([to_one_hot(label, len(in_label_vocab)) for label in labels])
-    return (tokens_vectorized, chars_vectorized), y
+    return [tokens_vectorized, chars_vectorized], y
 
 
 def make_training_data(in_encoder_lines, in_decoder_lines):
@@ -102,16 +103,10 @@ def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
     """
 
     model = TimeDistributed(Embedding(in_vocab_size, in_emb_size))(in_char_input)
-    model = TimeDistributed(Conv1D(256, 7, activation='relu', name='chars'))(model)
+    model = TimeDistributed(Conv1D(16, 5, activation='relu', name='chars'))(model)
     model = TimeDistributed(MaxPool1D(3))(model)
 
-    model = TimeDistributed(Conv1D(256, 7, activation='relu'))(model)
-    model = TimeDistributed(MaxPool1D(3))(model)
-
-    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
-    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
-    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
-    model = TimeDistributed(Conv1D(256, 3, activation='relu'))(model)
+    model = TimeDistributed(Conv1D(4, 3, activation='relu'))(model)
     model = TimeDistributed(MaxPool1D(3))(model)
 
     model = TimeDistributed(Flatten())(model)
@@ -138,19 +133,16 @@ def create_model(in_vocab_size,
     rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
     char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
-    rnn_cnn_combined = keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.Dense(1024, activation='relu')(rnn_cnn_combined)
-    output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.Dense(1024, activation='relu')(output)
+    rnn_cnn_combined = char_cnn  # keras.layers.Concatenate()([rnn, char_cnn])
+    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
                                                              activation='softmax',
                                                              name='labels'))(output)
     model = keras.Model(inputs=[word_input, char_input], outputs=[output])
 
-    # mean absolute error, accuracy
     opt = keras.optimizers.Adam(lr=lr)
-    model.compile(optimizer=opt, loss='categorical_crossentropy')
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=[f1])
     return model
 
 
@@ -166,8 +158,8 @@ def train(in_model,
     X_dev, y_dev = dev_data
     X_test, y_test = test_data
 
-    in_model.fit(X_train,
-                 y_train,
+    in_model.fit(x=X_train,
+                 y=y_train,
                  epochs=epochs,
                  shuffle=True,
                  batch_size=batch_size,
@@ -189,21 +181,63 @@ def train(in_model,
                                                               patience=5,
                                                               min_lr=0.001)])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
-    print 'Testset loss after {} epochs: {:.3f}'.format(epochs, test_loss)
+    print 'Evaluation results on testset:', test_loss
 
 
 def predict(in_model, X):
-    return np.argmax(in_model.predict(np.asarray([X])), axis=-1)
+    return np.argmax(in_model.predict(X), axis=-1)
 
 
-def denoise_line(in_line, in_model, in_vocab):
-    tokens = in_line.lower().split()
-    line_vectorized = vectorize_sequences([tokens], in_vocab, MAX_INPUT_LENGTH)
-    predicted = predict(in_model, line_vectorized)[0]
+def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_label_vocab):
+    tokens = [in_line.lower().split()]
+    tokens_vectorized = vectorize_sequences(tokens, in_vocab, MAX_INPUT_LENGTH)
+    chars_vectorized = []
+    for utterance_tokenized in tokens:
+        substrings = [' '.join(utterance_tokenized[:i + 1])
+                      for i in xrange(len(utterance_tokenized))]
+        substrings_vectorized = vectorize_sequences(substrings, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += [substrings_vectorized]
+    chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
+                                                                  value=PAD_ID,
+                                                                  maxlen=MAX_INPUT_LENGTH)
+
+    predicted = predict(in_model, chars_vectorized)[0]
     result_tokens = [example_token
                      for example_token, keep_flag in zip(tokens, predicted)
                      if keep_flag]
+    import pdb; pdb.set_trace()
     return ' '.join(result_tokens)
+
+
+def f1(y_true, y_pred):
+    def recall(y_true, y_pred):
+        """Recall metric.
+
+        Only computes a batch-wise average of recall.
+
+        Computes the recall, a metric for multi-label classification of
+        how many relevant items are selected.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision(y_true, y_pred):
+        """Precision metric.
+
+        Only computes a batch-wise average of precision.
+
+        Computes the precision, a metric for multi-label classification of
+        how many selected items are relevant.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+    precision = precision(y_true, y_pred)
+    recall = recall(y_true, y_pred)
+    return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
 
 def evaluate(in_model, X, y):
@@ -214,7 +248,8 @@ def evaluate(in_model, X, y):
 
 
 def load(in_model_folder):
-    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME))
+    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME),
+                                    custom_objects={'f1': f1})
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
