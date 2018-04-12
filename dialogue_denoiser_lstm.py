@@ -5,21 +5,23 @@ from operator import itemgetter
 import os
 
 import keras
+import tensorflow as tf
 import numpy as np
-from keras.layers import TimeDistributed, Embedding, Conv1D, MaxPool1D, Flatten, LSTM
+from keras.layers import TimeDistributed, Embedding, Conv2D, MaxPool2D, Flatten, LSTM, Reshape
 from keras import backend as K
 
-from data_utils import make_vocabulary, vectorize_sequences, to_one_hot, PAD_ID
+from data_utils import make_vocabulary, vectorize_sequences, PAD_ID
 
 random.seed(273)
 np.random.seed(273)
-
+tf.set_random_seed(273)
 
 TRAINSET_RATIO = 0.8
 VOCABULARY_SIZE = 15000
 MAX_INPUT_LENGTH = 80
 MEAN_WORD_LENGTH = 8
-MAX_CHAR_INPUT_LENGTH = MAX_INPUT_LENGTH * (MEAN_WORD_LENGTH + 1)
+CONTEXT_LENGTH = 3 
+MAX_CHAR_INPUT_LENGTH = CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
 MODEL_NAME = 'model.h5'
 VOCABULARY_NAME = 'vocab.json'
@@ -63,15 +65,15 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
     tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab, MAX_INPUT_LENGTH)
     chars_vectorized = []
     for utterance_tokenized in utterances_tokenized:
-        substrings = [' '.join(utterance_tokenized[:i + 1])
-                      for i in xrange(len(utterance_tokenized))]
-        substrings_vectorized = vectorize_sequences(substrings, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += [substrings_vectorized]
+        contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
+                    for i in xrange(len(utterance_tokenized))]
+        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += [contexts_vectorized]
     chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
                                                                   value=PAD_ID,
                                                                   maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
-    y = np.asarray([to_one_hot(label, len(in_label_vocab)) for label in labels])
+    y = keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
     return [tokens_vectorized, chars_vectorized], y
 
 
@@ -101,13 +103,16 @@ def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
     """
         Zhang and LeCun, 2015
     """
+    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size, mask_zero=True))(in_char_input)
+    model = TimeDistributed(Reshape((27, in_emb_size, 1)))(model)
+    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu', name='chars'))(model)
+    model = TimeDistributed(MaxPool2D((3, 3)))(model)
 
-    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size))(in_char_input)
-    model = TimeDistributed(Conv1D(16, 5, activation='relu', name='chars'))(model)
-    model = TimeDistributed(MaxPool1D(3))(model)
+    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu'))(model)
+    model = TimeDistributed(MaxPool2D((1, 1)))(model)
 
-    model = TimeDistributed(Conv1D(4, 3, activation='relu'))(model)
-    model = TimeDistributed(MaxPool1D(3))(model)
+    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu'))(model)
+    model = TimeDistributed(MaxPool2D((1, 1)))(model)
 
     model = TimeDistributed(Flatten())(model)
 
@@ -115,7 +120,7 @@ def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
 
 
 def rnn_module(in_word_input, in_vocab_size, in_cell_size):
-    embedding = Embedding(in_vocab_size, in_cell_size)(in_word_input)
+    embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(in_word_input)
     lstm = LSTM(in_cell_size, return_sequences=True)(embedding)
     return lstm
 
@@ -129,21 +134,40 @@ def create_model(in_vocab_size,
                  in_classes_number,
                  lr):
     word_input = keras.layers.Input(shape=(in_max_input_length,))
-    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
+    # char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
     rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
-    char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
+    # char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
-    rnn_cnn_combined = char_cnn  # keras.layers.Concatenate()([rnn, char_cnn])
+    rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
+    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
+    output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
                                                              activation='softmax',
                                                              name='labels'))(output)
-    model = keras.Model(inputs=[word_input, char_input], outputs=[output])
+    model = keras.Model(inputs=[word_input], outputs=[output])
 
-    opt = keras.optimizers.Adam(lr=lr)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=[f1])
+    opt = keras.optimizers.RMSprop(lr=lr)
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy', f1])
     return model
+
+
+def batch_generator(data, labels, batch_size):
+    """Generator used by `keras.models.Sequential.fit_generator` to yield batches
+    of pairs.
+    Such a generator is required by the parallel nature of the aforementioned
+    Keras function. It can theoretically feed batches of pairs indefinitely
+    (looping over the dataset). Ideally, it would be called so that an epoch ends
+    exactly with the last batch of the dataset.
+    """
+
+    data_idx = range(labels.shape[0])
+    while True:
+        batch_idx = np.random.choice(data_idx, size=batch_size)
+        batch = ([np.take(feature, batch_idx, axis=0) for feature in data],
+                 np.take(labels, batch_idx, axis=0))
+        yield batch
 
 
 def train(in_model,
@@ -151,6 +175,7 @@ def train(in_model,
           dev_data,
           test_data,
           in_checkpoint_filepath,
+          class_weight=None,
           epochs=100,
           batch_size=32,
           **kwargs):
@@ -158,28 +183,28 @@ def train(in_model,
     X_dev, y_dev = dev_data
     X_test, y_test = test_data
 
-    in_model.fit(x=X_train,
-                 y=y_train,
-                 epochs=epochs,
-                 shuffle=True,
-                 batch_size=batch_size,
-                 validation_data=(X_dev, y_dev),
-                 callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
-                                                            monitor='val_loss',
-                                                            verbose=1,
-                                                            save_best_only=True,
-                                                            save_weights_only=False,
-                                                            mode='auto',
-                                                            period=1),
-                            keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                          min_delta=0,
-                                                          patience=10,
-                                                          verbose=1,
-                                                          mode='auto'),
-                            keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
-                                                              factor=0.2,
-                                                              patience=5,
-                                                              min_lr=0.001)])
+    batch_gen = batch_generator(X_train, y_train, batch_size)
+    in_model.fit_generator(generator=batch_gen,
+                           epochs=epochs,
+                           steps_per_epoch=1000,
+                           class_weight=class_weight,
+                           validation_data=(X_dev, y_dev),
+                           callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
+                                                                      monitor='val_loss',
+                                                                      verbose=1,
+                                                                      save_best_only=True,
+                                                                      save_weights_only=False,
+                                                                      mode='auto',
+                                                                      period=1),
+                                      keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                                    min_delta=0,
+                                                                    patience=10,
+                                                                    verbose=1,
+                                                                    mode='auto'),
+                                      keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
+                                                                        factor=0.2,
+                                                                        patience=5,
+                                                                        min_lr=0.001)])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
     print 'Evaluation results on testset:', test_loss
 
@@ -188,24 +213,21 @@ def predict(in_model, X):
     return np.argmax(in_model.predict(X), axis=-1)
 
 
-def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_label_vocab):
+def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
     tokens = [in_line.lower().split()]
     tokens_vectorized = vectorize_sequences(tokens, in_vocab, MAX_INPUT_LENGTH)
     chars_vectorized = []
     for utterance_tokenized in tokens:
-        substrings = [' '.join(utterance_tokenized[:i + 1])
-                      for i in xrange(len(utterance_tokenized))]
-        substrings_vectorized = vectorize_sequences(substrings, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += [substrings_vectorized]
+        contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
+                    for i in xrange(len(utterance_tokenized))]
+        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += [contexts_vectorized]
     chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
                                                                   value=PAD_ID,
                                                                   maxlen=MAX_INPUT_LENGTH)
 
     predicted = predict(in_model, chars_vectorized)[0]
-    result_tokens = [example_token
-                     for example_token, keep_flag in zip(tokens, predicted)
-                     if keep_flag]
-    import pdb; pdb.set_trace()
+    result_tokens = map(lambda x: in_rev_label_vocab[x], filter(lambda x: x != 0, predicted))
     return ' '.join(result_tokens)
 
 

@@ -12,11 +12,13 @@ def configure_argument_parser():
 
 def run(in_model_folder):
     model, vocab, char_vocab, label_vocab = load(in_model_folder)
+    rev_label_vocab = {label_id: label
+                       for label, label_id in label_vocab.iteritems()}
     print 'Done loading'
     try:
         line = raw_input().strip()
         while line:
-            print denoise_line(line, model, vocab, char_vocab, label_vocab)
+            print denoise_line(line, model, vocab, char_vocab, rev_label_vocab)
             line = raw_input().strip()
     except EOFError as e:
         pass

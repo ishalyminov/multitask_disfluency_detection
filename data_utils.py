@@ -1,6 +1,7 @@
 import string
 from collections import defaultdict
 from operator import itemgetter
+import logging
 
 import keras
 import numpy as np
@@ -12,18 +13,22 @@ UNK = '_UNK'
 
 
 def make_char_vocabulary():
-    tokens = ['_PAD', '_UNK'] + list(string.printable)
+    alphabet = filter(lambda x: x not in string.uppercase, string.printable)
+    tokens = [PAD, UNK] + list(alphabet)
     vocab = {token: index for (index, token) in enumerate(tokens)}
     return vocab
 
 
-def make_vocabulary(in_lines, max_vocabulary_size):
+def make_vocabulary(in_lines, max_vocabulary_size, special_tokens=[PAD, UNK], frequency_threshold=3):
     freqdict = defaultdict(lambda: 0)
     for line in in_lines:
         for token in line:
             freqdict[token] += 1
     vocab = sorted(freqdict.items(), key=itemgetter(1), reverse=True)
-    rev_vocab = ([PAD, UNK] + map(itemgetter(0), vocab))[:max_vocabulary_size]
+    vocab = filter(lambda x: frequency_threshold < x[1], vocab)
+    logging.info('{} tokens ({}% of the vocabulary) were filtered by frequency threshold'.format(len(freqdict) - len(vocab),
+                                                                                                 100.0 * len(vocab) / float(len(freqdict))))
+    rev_vocab = (special_tokens + map(itemgetter(0), vocab))[:max_vocabulary_size]
     vocab = {word: idx for idx, word in enumerate(rev_vocab)}
     return vocab, rev_vocab
 
@@ -37,8 +42,3 @@ def vectorize_sequences(in_sequences, in_vocab, max_input_length):
                                                       maxlen=max_input_length)
 
 
-def to_one_hot(in_sequence, in_classes_number):
-    result = np.zeros((len(in_sequence), in_classes_number))
-    for idx, element in enumerate(in_sequence):
-        result[idx][element] = 1
-    return result
