@@ -85,16 +85,6 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
     return [tokens_vectorized, chars_vectorized], y, sample_weight
 
 
-def make_dataset_split(in_data_points, trainset_ratio=TRAINSET_RATIO):
-    shuffle(in_data_points)
-    trainset_size = int(trainset_ratio * len(in_data_points))
-    devset_size = int((len(in_data_points) - trainset_size) / 2.0)
-    train, dev, test = (in_data_points[:trainset_size],
-                        in_data_points[trainset_size: trainset_size + devset_size],
-                        in_data_points[trainset_size + devset_size:])
-    return train, dev, test
-
-
 def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
     """
         Zhang and LeCun, 2015
@@ -135,16 +125,16 @@ def create_model(in_vocab_size,
     # char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
     rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
-    output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.Dense(128, activation='relu')(output)
-    output = keras.layers.Dropout(0.5)(output)
+    output = keras.layers.TimeDistributed(keras.layers.Dense(128, activation='relu'))(rnn_cnn_combined)
+    # output = keras.layers.Dropout(0.5)(output)
+    # output = keras.layers.Dense(128, activation='relu')(output)
+    # output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
                                                              activation='softmax',
                                                              name='labels'))(output)
     model = keras.Model(inputs=[word_input], outputs=[output])
 
-    opt = keras.optimizers.RMSprop(lr=lr)
+    opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics=['accuracy', f1],

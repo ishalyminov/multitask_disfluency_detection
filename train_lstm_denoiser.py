@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 import os
 
 import pandas as pd
-import numpy as np
 
 from data_utils import make_vocabulary, make_char_vocabulary, PAD
 from dialogue_denoiser_lstm import (create_model,
@@ -24,21 +23,23 @@ def configure_argument_parser():
 
 
 def main(in_dataset_folder, in_model_folder):
+    table_to_tuples = lambda x: [(tokens, tags) for tokens, tags in zip(x['utterance'], x['tags'])]
+
     trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
     vocab, _ = make_vocabulary(trainset['utterance'].values, VOCABULARY_SIZE)
     char_vocab = make_char_vocabulary()
     label_vocab, _ = make_vocabulary(trainset['tags'].values, VOCABULARY_SIZE, special_tokens=[PAD])
-    X_train, y_train, weights_train = make_dataset([(tokens, tags) for tokens, tags in zip(trainset['utterance'], trainset['tags'])],
+    X_train, y_train, weights_train = make_dataset(table_to_tuples(trainset),
                                                    vocab,
                                                    char_vocab,
                                                    label_vocab)
-    X_dev, y_dev, weights_dev = make_dataset([(tokens, tags) for tokens, tags in zip(devset['utterance'], devset['tags'])],
+    X_dev, y_dev, weights_dev = make_dataset(table_to_tuples(devset),
                                               vocab,
                                               char_vocab,
                                               label_vocab)
-    X_test, y_test, weights_test = make_dataset([(tokens, tags) for tokens, tags in zip(testset['utterance'], testset['tags'])],
+    X_test, y_test, weights_test = make_dataset(table_to_tuples(testset),
                                                 vocab,
                                                 char_vocab,
                                                 label_vocab)
@@ -46,7 +47,7 @@ def main(in_dataset_folder, in_model_folder):
 
     model = create_model(len(vocab),
                          len(char_vocab),
-                         256,  # word embedding size
+                         128,  # word embedding size
                          32,  # char embedding size
                          MAX_INPUT_LENGTH,
                          MAX_CHAR_INPUT_LENGTH,
