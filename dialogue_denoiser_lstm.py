@@ -3,13 +3,13 @@ from random import shuffle
 import random
 from operator import itemgetter
 import os
+from collections import defaultdict
 
 import keras
-import tensorflow as tf
-import numpy as np
 from keras.layers import TimeDistributed, Embedding, Conv2D, MaxPool2D, Flatten, LSTM, Reshape
 from keras import backend as K
-from sklearn.utils.class_weight import compute_class_weight
+import tensorflow as tf
+import numpy as np
 
 from data_utils import vectorize_sequences, PAD_ID
 
@@ -75,13 +75,13 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
                                                                   maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
     y = keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
-    labels_flattened = labels.flatten()
-    class_weight_map = {idx: value
-                        for idx, value in enumerate(compute_class_weight('balanced',
-                                                                         np.unique(labels_flattened),
-                                                                         labels_flattened))}
-    set_class_label = np.vectorize(lambda x: class_weight_map[x])
-    sample_weight = set_class_label(labels)
+    labels_flattened = filter(lambda x: x != PAD_ID, labels.flatten())
+    class_freq_dict = defaultdict(lambda: 0)
+    for label in labels_flattened:
+        class_freq_dict[label] += 1
+    class_weight_map = dict(map(lambda (x, y): (x, 1.0 / float(y)), class_freq_dict.iteritems())) 
+    class_weight_map[PAD_ID] = 0.0
+    sample_weight = np.vectorize(class_weight_map.get)(labels)
     return [tokens_vectorized, chars_vectorized], y, sample_weight
 
 
