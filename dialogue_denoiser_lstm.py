@@ -9,8 +9,9 @@ import tensorflow as tf
 import numpy as np
 from keras.layers import TimeDistributed, Embedding, Conv2D, MaxPool2D, Flatten, LSTM, Reshape
 from keras import backend as K
+from sklearn.utils.class_weight import compute_class_weight
 
-from data_utils import make_vocabulary, vectorize_sequences, PAD_ID
+from data_utils import vectorize_sequences, PAD_ID
 
 random.seed(273)
 np.random.seed(273)
@@ -74,19 +75,14 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
                                                                   maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
     y = keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
-    return [tokens_vectorized, chars_vectorized], y
-
-
-def make_training_data(in_encoder_lines, in_decoder_lines):
-    data_points = [(enc_line, dec_line)
-                   for enc_line, dec_line in zip(in_encoder_lines, in_decoder_lines)]
-    train, dev, test = make_dataset_split(data_points, TRAINSET_RATIO)
-    vocab, _ = make_vocabulary(map(itemgetter(0), train), VOCABULARY_SIZE)
-    label_vocab, _ = make_vocabulary(map(itemgetter(1), train), VOCABULARY_SIZE)
-    X_train, y_train = make_dataset(train, vocab, label_vocab)
-    X_dev, y_dev = make_dataset(dev, vocab, label_vocab)
-    X_test, y_test = make_dataset(test, vocab, label_vocab)
-    return vocab, label_vocab, (X_train, y_train), (X_dev, y_dev), (X_test, y_test)
+    labels_flattened = labels.flatten()
+    class_weight_map = {idx: value
+                        for idx, value in enumerate(compute_class_weight('balanced',
+                                                                         np.unique(labels_flattened),
+                                                                         labels_flattened))}
+    set_class_label = np.vectorize(lambda x: class_weight_map[x])
+    sample_weight = set_class_label(labels)
+    return [tokens_vectorized, chars_vectorized], y, sample_weight
 
 
 def make_dataset_split(in_data_points, trainset_ratio=TRAINSET_RATIO):
@@ -141,7 +137,7 @@ def create_model(in_vocab_size,
     rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
     output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
+    output = keras.layers.Dense(128, activation='relu')(output)
     output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
                                                              activation='softmax',
@@ -149,11 +145,14 @@ def create_model(in_vocab_size,
     model = keras.Model(inputs=[word_input], outputs=[output])
 
     opt = keras.optimizers.RMSprop(lr=lr)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy', f1])
+    model.compile(optimizer=opt,
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy', f1],
+                  sample_weight_mode='temporal')
     return model
 
 
-def batch_generator(data, labels, batch_size):
+def batch_generator(data, labels, weights, batch_size):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
     Such a generator is required by the parallel nature of the aforementioned
@@ -166,7 +165,8 @@ def batch_generator(data, labels, batch_size):
     while True:
         batch_idx = np.random.choice(data_idx, size=batch_size)
         batch = ([np.take(feature, batch_idx, axis=0) for feature in data],
-                 np.take(labels, batch_idx, axis=0))
+                 np.take(labels, batch_idx, axis=0),
+                 np.take(weights, batch_idx, axis=0))
         yield batch
 
 
@@ -179,15 +179,14 @@ def train(in_model,
           epochs=100,
           batch_size=32,
           **kwargs):
-    X_train, y_train = train_data
-    X_dev, y_dev = dev_data
-    X_test, y_test = test_data
+    X_train, y_train, weights_train = train_data
+    X_dev, y_dev, weights_dev = dev_data
+    X_test, y_test, weights_test = test_data
 
-    batch_gen = batch_generator(X_train, y_train, batch_size)
+    batch_gen = batch_generator(X_train, y_train, weights_train, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
                            steps_per_epoch=1000,
-                           class_weight=class_weight,
                            validation_data=(X_dev, y_dev),
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',
