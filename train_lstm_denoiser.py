@@ -4,7 +4,7 @@ import os
 import pandas as pd
 
 from data_utils import make_vocabulary, make_char_vocabulary, PAD
-from dialogue_denoiser_lstm import (create_model,
+from dialogue_denoiser_lstm import (create_simple_model,
                                     train,
                                     evaluate,
                                     save,
@@ -45,21 +45,21 @@ def main(in_dataset_folder, in_model_folder):
                                                 label_vocab)
     save(None, vocab, char_vocab, label_vocab, in_model_folder, save_model=False)
 
-    model = create_model(len(vocab),
-                         len(char_vocab),
-                         128,  # word embedding size
-                         32,  # char embedding size
-                         MAX_INPUT_LENGTH,
-                         MAX_CHAR_INPUT_LENGTH,
-                         len(label_vocab),
-                         0.01)
+    model = create_simple_model(len(vocab),
+                                len(char_vocab),
+                                128,  # word embedding size
+                                32,  # char embedding size
+                                MAX_INPUT_LENGTH,
+                                MAX_CHAR_INPUT_LENGTH,
+                                len(label_vocab),
+                                0.01)
     train(model,
           ([X_train[0]], y_train, weights_train),
           ([X_dev[0]], y_dev, weights_dev),
-          ([X_test[0]], y_test, weights_test),
+          ([X_train[0]], y_train, weights_train),
           os.path.join(in_model_folder, MODEL_NAME),
-          batch_size=8)
-    print 'Testset accuracy: {:.3f}'.format(evaluate(model, X_test[0], y_test))
+          batch_size=2,
+          epochs=1)
 
 
 if __name__ == '__main__':

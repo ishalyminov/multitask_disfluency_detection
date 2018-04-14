@@ -39,6 +39,7 @@ def vectorize_sequences(in_sequences, in_vocab, max_input_length):
         sequences_vectorized.append([in_vocab.get(token, UNK_ID) for token in sequence])
     return keras.preprocessing.sequence.pad_sequences(sequences_vectorized,
                                                       value=PAD_ID,
-                                                      maxlen=max_input_length)
+                                                      maxlen=max_input_length,
+                                                      padding='post')
 
 

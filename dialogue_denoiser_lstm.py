@@ -1,27 +1,26 @@
 import json
-from random import shuffle
 import random
+from functools import partial, update_wrapper
 from operator import itemgetter
 import os
 from collections import defaultdict
 
 import keras
 from keras.layers import TimeDistributed, Embedding, Conv2D, MaxPool2D, Flatten, LSTM, Reshape
-from keras import backend as K
 import tensorflow as tf
 import numpy as np
 
 from data_utils import vectorize_sequences, PAD_ID
+from metrics import f1
 
 random.seed(273)
 np.random.seed(273)
 tf.set_random_seed(273)
 
-TRAINSET_RATIO = 0.8
 VOCABULARY_SIZE = 15000
 MAX_INPUT_LENGTH = 80
 MEAN_WORD_LENGTH = 8
-CONTEXT_LENGTH = 3 
+CONTEXT_LENGTH = 3
 MAX_CHAR_INPUT_LENGTH = CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
 MODEL_NAME = 'model.h5'
@@ -30,34 +29,10 @@ CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
 
 
-def load_dataset(in_encoder_input, in_decoder_input):
-    with open(in_encoder_input) as encoder_in:
-        with open(in_decoder_input) as decoder_in:
-            encoder_lines, decoder_lines = [map(lambda x: x.strip(), encoder_in.readlines()),
-                                            map(lambda x: x.strip(), decoder_in.readlines())]
-    return encoder_lines, decoder_lines
-
-
-def make_tagger_data_point(in_src, in_tgt):
-    source, target = in_src.lower().split(), in_tgt.lower().split()
-    tags = []
-    src_index, tgt_index = 0, 0
-    while src_index < len(source):
-        if tgt_index < len(target) and source[src_index] == target[tgt_index]:
-            tags.append(1)
-            tgt_index += 1
-        else:
-            tags.append(0)
-        src_index += 1
-    assert len(tags) == len(source)
-    return source, tags
-
-
-def make_tagger_data_points(in_encoder_lines, in_decoder_lines):
-    result = []
-    for src_line, tgt_line in zip(in_encoder_lines, in_decoder_lines):
-        result.append(make_tagger_data_point(src_line, tgt_line))
-    return result
+def wrapped_partial(func, *args, **kwargs):
+    partial_func = partial(func, *args, **kwargs)
+    update_wrapper(partial_func, func)
+    return partial_func
 
 
 def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
@@ -75,12 +50,12 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
                                                                   maxlen=MAX_INPUT_LENGTH)
     labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
     y = keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
-    labels_flattened = filter(lambda x: x != PAD_ID, labels.flatten())
+    labels_flattened = labels.flatten()
     class_freq_dict = defaultdict(lambda: 0)
     for label in labels_flattened:
         class_freq_dict[label] += 1
-    class_weight_map = dict(map(lambda (x, y): (x, 1.0 / float(y)), class_freq_dict.iteritems())) 
-    class_weight_map[PAD_ID] = 0.0
+    class_weight_map = dict(map(lambda (x, y): (x, 1.0 / y), class_freq_dict.iteritems()))
+    # class_weight_map = dict(map(lambda (x, y): (x, 1.0), class_freq_dict.iteritems()))
     sample_weight = np.vectorize(class_weight_map.get)(labels)
     return [tokens_vectorized, chars_vectorized], y, sample_weight
 
@@ -137,7 +112,7 @@ def create_model(in_vocab_size,
     opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
-                  metrics=['accuracy', f1],
+                  metrics=['accuracy'],
                   sample_weight_mode='temporal')
     return model
 
@@ -165,7 +140,6 @@ def train(in_model,
           dev_data,
           test_data,
           in_checkpoint_filepath,
-          class_weight=None,
           epochs=100,
           batch_size=32,
           **kwargs):
@@ -176,7 +150,7 @@ def train(in_model,
     batch_gen = batch_generator(X_train, y_train, weights_train, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
-                           steps_per_epoch=1000,
+                           steps_per_epoch=100,
                            validation_data=(X_dev, y_dev),
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',
@@ -195,7 +169,10 @@ def train(in_model,
                                                                         patience=5,
                                                                         min_lr=0.001)])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
-    print 'Evaluation results on testset:', test_loss
+    print 'Evaluation results on testset'
+    print 'Metrics: ', test_loss
+    # print 'Confusion Matrix:'
+    # print confusion_matrix(in_model.predict(X_test), y_test)
 
 
 def predict(in_model, X):
@@ -215,40 +192,9 @@ def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab)
                                                                   value=PAD_ID,
                                                                   maxlen=MAX_INPUT_LENGTH)
 
-    predicted = predict(in_model, chars_vectorized)[0]
-    result_tokens = map(lambda x: in_rev_label_vocab[x], filter(lambda x: x != 0, predicted))
+    predicted = predict(in_model, tokens_vectorized)[0]
+    result_tokens = map(lambda x: in_rev_label_vocab[x], predicted[:len(tokens[0])])
     return ' '.join(result_tokens)
-
-
-def f1(y_true, y_pred):
-    def recall(y_true, y_pred):
-        """Recall metric.
-
-        Only computes a batch-wise average of recall.
-
-        Computes the recall, a metric for multi-label classification of
-        how many relevant items are selected.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-        recall = true_positives / (possible_positives + K.epsilon())
-        return recall
-
-    def precision(y_true, y_pred):
-        """Precision metric.
-
-        Only computes a batch-wise average of precision.
-
-        Computes the precision, a metric for multi-label classification of
-        how many selected items are relevant.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-        precision = true_positives / (predicted_positives + K.epsilon())
-        return precision
-    precision = precision(y_true, y_pred)
-    recall = recall(y_true, y_pred)
-    return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
 
 def evaluate(in_model, X, y):
@@ -256,6 +202,36 @@ def evaluate(in_model, X, y):
     y_gold = np.argmax(y, axis=-1)
     return sum([int(np.array_equal(y_pred_i, y_gold_i))
                 for y_pred_i, y_gold_i in zip(y_pred, y_gold)]) / float(y.shape[0])
+
+
+def create_simple_model(in_vocab_size,
+                        in_char_vocab_size,
+                        in_cell_size,
+                        in_char_cell_size,
+                        in_max_input_length,
+                        in_max_char_input_length,
+                        in_classes_number,
+                        lr):
+    word_input = keras.layers.Input(shape=(in_max_input_length,))
+    embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(word_input)
+    rnn = LSTM(in_cell_size, return_sequences=True)(embedding)
+
+    rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
+    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
+    # output = keras.layers.Dropout(0.5)(output)
+    # output = keras.layers.Dense(128, activation='relu')(output)
+    # output = keras.layers.Dropout(0.5)(output)
+    output = keras.layers.Dense(in_classes_number,
+                                activation='softmax',
+                                name='labels')(output)
+    model = keras.Model(inputs=[word_input], outputs=[output])
+
+    opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
+    model.compile(optimizer=opt,
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy', wrapped_partial(f1, in_classes_number - 1)],
+                  sample_weight_mode='temporal')
+    return model
 
 
 def load(in_model_folder):
@@ -281,4 +257,3 @@ def save(in_model, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, sav
         json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
-
