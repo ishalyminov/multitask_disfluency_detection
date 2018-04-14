@@ -11,7 +11,7 @@ import tensorflow as tf
 import numpy as np
 
 from data_utils import vectorize_sequences, PAD_ID
-from metrics import f1
+from metrics import f1, ZeroPaddedF1Score, zero_padded_f1
 
 random.seed(273)
 np.random.seed(273)
@@ -167,7 +167,8 @@ def train(in_model,
                                       keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                                                         factor=0.2,
                                                                         patience=5,
-                                                                        min_lr=0.001)])
+                                                                        min_lr=0.001),
+                                      ZeroPaddedF1Score()])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
     print 'Evaluation results on testset'
     print 'Metrics: ', test_loss
@@ -176,7 +177,8 @@ def train(in_model,
 
 
 def predict(in_model, X):
-    return np.argmax(in_model.predict(X), axis=-1)
+    model_out = in_model.predict(X)
+    return np.argmax(model_out, axis=-1)
 
 
 def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
@@ -229,20 +231,20 @@ def create_simple_model(in_vocab_size,
     opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
-                  metrics=['accuracy', wrapped_partial(f1, in_classes_number - 1)],
+                  metrics=['accuracy'],
                   sample_weight_mode='temporal')
     return model
 
 
 def load(in_model_folder):
-    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME),
-                                    custom_objects={'f1': f1})
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
         char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
+    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME),
+                                    custom_objects={'f1': wrapped_partial(f1, len(label_vocab) - 1)})
     return model, vocab, char_vocab, label_vocab
 
 
