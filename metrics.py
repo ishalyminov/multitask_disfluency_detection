@@ -11,8 +11,8 @@ class ZeroPaddedF1Score(Callback):
 
 
     def on_epoch_end(self, epoch, logs={}):
-        y_true = np.argmax(self.validation_data[1], axis=-1)
-        y_pred = np.argmax(self.model.predict(self.validation_data[0]), axis=-1)
+        y_true = np.argmax(self.validation_data[2], axis=-1)
+        y_pred = np.argmax(self.model.predict(self.validation_data[:2]), axis=-1)
         val_f1 = zero_padded_f1(y_true, y_pred)
         self.val_f1s.append(val_f1)
         print ' - val_f1: %f' % (val_f1)

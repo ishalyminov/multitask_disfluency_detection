@@ -6,9 +6,18 @@ import os
 from collections import defaultdict
 
 import keras
-from keras.layers import TimeDistributed, Embedding, Conv2D, MaxPool2D, Flatten, LSTM, Reshape
+from keras.layers import (TimeDistributed,
+                          Embedding,
+                          Conv1D,
+                          Conv2D,
+                          MaxPool1D,
+                          MaxPool2D,
+                          Flatten,
+                          LSTM,
+                          Reshape)
 import tensorflow as tf
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
 
 from data_utils import vectorize_sequences, PAD_ID
 from metrics import f1, ZeroPaddedF1Score, zero_padded_f1
@@ -54,9 +63,14 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
     class_freq_dict = defaultdict(lambda: 0)
     for label in labels_flattened:
         class_freq_dict[label] += 1
-    class_weight_map = dict(map(lambda (x, y): (x, 1.0 / y), class_freq_dict.iteritems()))
-    # class_weight_map = dict(map(lambda (x, y): (x, 1.0), class_freq_dict.iteritems()))
-    sample_weight = np.vectorize(class_weight_map.get)(labels)
+    class_weight_map = {idx: value
+                        for idx, value in enumerate(compute_class_weight('balanced',
+                                                                         np.unique(labels_flattened),
+                                                                         labels_flattened))}
+    set_class_label = np.vectorize(lambda x: class_weight_map[x])
+    sample_weight = set_class_label(labels)
+    # class_weight_map = dict(map(lambda (x, y): (x, 1.0 / float(y)), class_freq_dict.iteritems()))
+    # sample_weight = np.vectorize(class_weight_map.get)(labels)
     return [tokens_vectorized, chars_vectorized], y, sample_weight
 
 
@@ -74,6 +88,26 @@ def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
 
     model = TimeDistributed(Conv2D(32, (3, 3), activation='relu'))(model)
     model = TimeDistributed(MaxPool2D((1, 1)))(model)
+
+    model = TimeDistributed(Flatten())(model)
+
+    return model
+
+
+def char_cnn_1d_module(in_char_input, in_vocab_size, in_emb_size):
+    """
+        Zhang and LeCun, 2015
+    """
+    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size, mask_zero=True))(in_char_input)
+    # model = TimeDistributed(Reshape((27, in_emb_size, 1)))(model)
+    model = TimeDistributed(Conv1D(32, 3, activation='relu', name='chars'))(model)
+    model = TimeDistributed(MaxPool1D(3))(model)
+
+    model = TimeDistributed(Conv1D(32, 3, activation='relu'))(model)
+    model = TimeDistributed(MaxPool1D(1))(model)
+
+    model = TimeDistributed(Conv1D(32, 3, activation='relu'))(model)
+    model = TimeDistributed(MaxPool1D(1))(model)
 
     model = TimeDistributed(Flatten())(model)
 
@@ -150,8 +184,8 @@ def train(in_model,
     batch_gen = batch_generator(X_train, y_train, weights_train, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
-                           steps_per_epoch=100,
-                           validation_data=(X_dev, y_dev),
+                           steps_per_epoch=1000,
+                           validation_data=(X_dev, y_dev, weights_dev),
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',
                                                                       verbose=1,
@@ -215,18 +249,19 @@ def create_simple_model(in_vocab_size,
                         in_classes_number,
                         lr):
     word_input = keras.layers.Input(shape=(in_max_input_length,))
-    embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(word_input)
-    rnn = LSTM(in_cell_size, return_sequences=True)(embedding)
+    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
+    rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
+    char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
-    rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.Dense(128, activation='relu')(rnn_cnn_combined)
-    # output = keras.layers.Dropout(0.5)(output)
+    rnn_cnn_combined = keras.layers.Concatenate()([rnn, char_cnn])
+    output = keras.layers.Dense(256, activation='relu')(rnn_cnn_combined)
+    output = keras.layers.Dropout(0.5)(output)
     # output = keras.layers.Dense(128, activation='relu')(output)
     # output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.Dense(in_classes_number,
                                 activation='softmax',
                                 name='labels')(output)
-    model = keras.Model(inputs=[word_input], outputs=[output])
+    model = keras.Model(inputs=[word_input, char_input], outputs=[output])
 
     opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
     model.compile(optimizer=opt,
@@ -243,8 +278,7 @@ def load(in_model_folder):
         char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
-    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME),
-                                    custom_objects={'f1': wrapped_partial(f1, len(label_vocab) - 1)})
+    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME))
     return model, vocab, char_vocab, label_vocab
 
 
