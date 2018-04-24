@@ -11,21 +11,18 @@ class ZeroPaddedF1Score(Callback):
 
 
     def on_epoch_end(self, epoch, logs={}):
-        val_f1_map = zero_padded_f1(self.validation_data[1],
-                                    self.model.predict(self.validation_data[:1]))
-        self.val_f1s.append(val_f1_map)
-        print u' - val_f1: {:.3f}'.format(u' - '.join([u'{}: {}'.format(class_id, class_f1)
-                                                       for class_id, class_f1 in val_f1_map.iteritems()]))
+        val_f1 = zero_padded_f1(self.validation_data[1],
+                                self.model.predict(self.validation_data[:1]))
+        self.val_f1s.append(val_f1)
+        print u' - val_f1: {}'.format(u' - '.join([u'{}: {:.3f}'.format(class_id, class_f1)
+                                                   for class_id, class_f1 in enumerate(val_f1)]))
 
 
 def zero_padded_f1(y_true, y_pred):
     y_true_flat = np.argmax(y_true, axis=-1).flatten()
     y_pred_flat = np.argmax(y_pred, axis=-1).flatten()
-    result = {}
-    for class_i in xrange(1, y_true.shape[1]):
-        f1_i = f1_score(y_true_flat, y_pred_flat, labels=[class_i], average=None)
-        result[class_i] = f1_i
-    return result
+    result = f1_score(y_true_flat, y_pred_flat, labels=range(1, y_true.shape[-1]), average=None)
+    return result 
 
 
 def precision(y_true, y_pred):

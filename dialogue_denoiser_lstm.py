@@ -176,6 +176,7 @@ def train(in_model,
           in_checkpoint_filepath,
           epochs=100,
           batch_size=32,
+          steps_per_epoch=1000,
           **kwargs):
     X_train, y_train, weights_train = train_data
     X_dev, y_dev, weights_dev = dev_data
@@ -184,7 +185,7 @@ def train(in_model,
     batch_gen = batch_generator(X_train, y_train, weights_train, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
-                           steps_per_epoch=1000,
+                           steps_per_epoch=steps_per_epoch,
                            validation_data=(X_dev, y_dev, weights_dev),
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',

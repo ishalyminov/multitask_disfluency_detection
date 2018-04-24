@@ -59,7 +59,8 @@ def main(in_dataset_folder, in_model_folder):
           ([X_test[0]], y_test, weights_test),
           os.path.join(in_model_folder, MODEL_NAME),
           batch_size=32,
-          epochs=100)
+          epochs=100,
+          steps_per_epoch=10)
 
 
 if __name__ == '__main__':
