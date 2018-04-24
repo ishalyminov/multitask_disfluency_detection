@@ -11,25 +11,19 @@ class ZeroPaddedF1Score(Callback):
 
 
     def on_epoch_end(self, epoch, logs={}):
-        y_true = np.argmax(self.validation_data[1], axis=-1)
-        y_pred = np.argmax(self.model.predict(self.validation_data[:1]), axis=-1)
-        val_f1_map = zero_padded_f1(y_true, y_pred)
+        val_f1_map = zero_padded_f1(self.validation_data[1],
+                                    self.model.predict(self.validation_data[:1]))
         self.val_f1s.append(val_f1_map)
         print u' - val_f1: {:.3f}'.format(u' - '.join([u'{}: {}'.format(class_id, class_f1)
                                                        for class_id, class_f1 in val_f1_map.iteritems()]))
 
 
 def zero_padded_f1(y_true, y_pred):
-    y_pred_flat, y_true_flat = [], []
-    unique_class_ids = set([])
-    for y_pred_i, y_true_i in zip(y_pred.flatten(), y_true.flatten()):
-        if y_true_i != 0:
-            y_pred_flat.append(y_pred_i)
-            y_true_flat.append(y_true_i)
-            unique_class_ids.add(y_true_i)
+    y_true_flat = np.argmax(y_true, axis=-1).flatten()
+    y_pred_flat = np.argmax(y_pred, axis=-1).flatten()
     result = {}
-    for class_i in xrange(1, len(unique_class_ids)):
-        f1_i = f1_score(y_true_flat, y_pred_flat, pos_label=class_i, average='binary')
+    for class_i in xrange(1, y_true.shape[1]):
+        f1_i = f1_score(y_true_flat, y_pred_flat, labels=[class_i], average=None)
         result[class_i] = f1_i
     return result
 
