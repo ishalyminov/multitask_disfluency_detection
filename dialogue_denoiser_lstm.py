@@ -67,10 +67,10 @@ def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
                         for idx, value in enumerate(compute_class_weight('balanced',
                                                                          np.unique(labels_flattened),
                                                                          labels_flattened))}
-    set_class_label = np.vectorize(lambda x: class_weight_map[x])
-    sample_weight = set_class_label(labels)
-    # class_weight_map = dict(map(lambda (x, y): (x, 1.0 / float(y)), class_freq_dict.iteritems()))
-    # sample_weight = np.vectorize(class_weight_map.get)(labels)
+    # set_class_label = np.vectorize(lambda x: class_weight_map[x])
+    # sample_weight = set_class_label(labels)
+    class_weight_map = dict(map(lambda (x, y): (x, 1.0), class_freq_dict.iteritems()))
+    sample_weight = np.vectorize(class_weight_map.get)(labels)
     return [tokens_vectorized, chars_vectorized], y, sample_weight
 
 
@@ -249,11 +249,11 @@ def create_simple_model(in_vocab_size,
                         in_classes_number,
                         lr):
     word_input = keras.layers.Input(shape=(in_max_input_length,))
-    char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
+    #char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
     rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
-    char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
+    #char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
-    rnn_cnn_combined = keras.layers.Concatenate()([rnn, char_cnn])
+    rnn_cnn_combined = rnn #keras.layers.Concatenate()([rnn, char_cnn])
     output = keras.layers.Dense(256, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
     # output = keras.layers.Dense(128, activation='relu')(output)
@@ -261,9 +261,9 @@ def create_simple_model(in_vocab_size,
     output = keras.layers.Dense(in_classes_number,
                                 activation='softmax',
                                 name='labels')(output)
-    model = keras.Model(inputs=[word_input, char_input], outputs=[output])
+    model = keras.Model(inputs=[word_input], outputs=[output])
 
-    opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
+    opt = keras.optimizers.Adam(lr=lr, clipnorm=10.0)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'],

@@ -54,9 +54,9 @@ def main(in_dataset_folder, in_model_folder):
                                 len(label_vocab),
                                 0.01)
     train(model,
-          (X_train, y_train, weights_train),
-          (X_dev, y_dev, weights_dev),
-          (X_test, y_test, weights_test),
+          ([X_train[0]], y_train, weights_train),
+          ([X_dev[0]], y_dev, weights_dev),
+          ([X_test[0]], y_test, weights_test),
           os.path.join(in_model_folder, MODEL_NAME),
           batch_size=32,
           epochs=100)
