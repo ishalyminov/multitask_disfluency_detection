@@ -9,7 +9,6 @@ class ZeroPaddedF1Score(Callback):
     def on_train_begin(self, logs={}):
         self.val_f1s = []
 
-
     def on_epoch_end(self, epoch, logs={}):
         val_f1 = zero_padded_f1(self.validation_data[1],
                                 self.model.predict(self.validation_data[:1]))
@@ -18,10 +17,31 @@ class ZeroPaddedF1Score(Callback):
                                                    for class_id, class_f1 in enumerate(val_f1)]))
 
 
-def zero_padded_f1(y_true, y_pred):
+class DisfluencyDetectionF1Score(Callback):
+    def __init__(self, in_tag_clusters={}):
+        self.tag_clusters = in_tag_clusters
+
+    def on_train_begin(self, logs={}):
+        self.val_f1s = []
+
+    def on_epoch_end(self, epoch, logs={}):
+        predicted = self.model.predict(self.validation_data[:1])
+        val_f1_map = {}
+        for name, tags in self.tag_clusters.iteritems():
+            val_f1 = zero_padded_f1(self.validation_data[1],
+                                    predicted,
+                                    labels=tags)
+            val_f1_map[name] = val_f1
+        self.val_f1s.append(val_f1_map)
+        print u' - val_f1: {}'.format(u' - '.join([u'{}: {:.3f}'.format(name, f1)
+                                                   for name, f1 in val_f1_map.iteritems()]))
+
+
+def zero_padded_f1(y_true, y_pred, labels=None):
+    f1_labels = range(1, y_true.shape[-1]) if not labels else labels
     y_true_flat = np.argmax(y_true, axis=-1).flatten()
     y_pred_flat = np.argmax(y_pred, axis=-1).flatten()
-    result = f1_score(y_true_flat, y_pred_flat, labels=range(1, y_true.shape[-1]), average=None)
+    result = f1_score(y_true_flat, y_pred_flat, labels=f1_labels, average='macro')
     return result 
 
 

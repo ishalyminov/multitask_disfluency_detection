@@ -20,7 +20,8 @@ import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 
 from data_utils import vectorize_sequences, PAD_ID
-from metrics import f1, ZeroPaddedF1Score, zero_padded_f1
+from deep_disfluency_utils import group_tags
+from metrics import DisfluencyDetectionF1Score
 
 random.seed(273)
 np.random.seed(273)
@@ -174,6 +175,7 @@ def train(in_model,
           dev_data,
           test_data,
           in_checkpoint_filepath,
+          label_vocab,
           epochs=100,
           batch_size=32,
           steps_per_epoch=1000,
@@ -203,12 +205,10 @@ def train(in_model,
                                                                         factor=0.2,
                                                                         patience=5,
                                                                         min_lr=0.001),
-                                      ZeroPaddedF1Score()])
+                                      DisfluencyDetectionF1Score(group_tags(label_vocab))])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
     print 'Evaluation results on testset'
     print 'Metrics: ', test_loss
-    # print 'Confusion Matrix:'
-    # print confusion_matrix(in_model.predict(X_test), y_test)
 
 
 def predict(in_model, X):

@@ -4,7 +4,6 @@ from operator import itemgetter
 import logging
 
 import keras
-import numpy as np
 
 PAD_ID = 0
 UNK_ID = 1
