@@ -38,19 +38,15 @@ CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
 
 
-def get_sample_weight(in_labels):
-    labels_filtered = filter(lambda x: x != 0, in_labels.flatten())
-    class_weight = compute_class_weight('balanced', np.unique(labels_filtered), labels_filtered)
-    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(labels_filtered), class_weight)}
-    class_weight_map[0] = 0.0
-
-    sample_weight = np.vectorize(class_weight_map.get)(in_labels)
+def get_sample_weight(in_labels, in_class_weight_map):
+    sample_weight = np.vectorize(in_class_weight_map.get)(in_labels)
     return sample_weight
 
 
 def get_class_weight(in_labels):
-    class_weight = compute_class_weight(None, np.unique(in_labels), in_labels)
-    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(in_labels), class_weight)}
+    class_weight = compute_class_weight('balanced', np.unique(in_labels), in_labels)
+    class_weight_map = {class_id: weight
+                        for class_id, weight in zip(np.unique(in_labels), class_weight)}
 
     return class_weight_map
 
@@ -168,7 +164,7 @@ def create_model(in_vocab_size,
     return model
 
 
-def batch_generator(data, labels, batch_size):
+def batch_generator(data, labels, sample_probabilities, batch_size):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
     Such a generator is required by the parallel nature of the aforementioned
@@ -179,7 +175,7 @@ def batch_generator(data, labels, batch_size):
 
     data_idx = range(labels.shape[0])
     while True:
-        batch_idx = np.random.choice(data_idx, size=batch_size)
+        batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probabilities)
         batch = ([np.take(feature, batch_idx, axis=0) for feature in data],
                  np.take(labels, batch_idx, axis=0))
         yield batch
@@ -200,7 +196,9 @@ def train(in_model,
     X_dev, y_dev = dev_data
     X_test, y_test = test_data
 
-    batch_gen = batch_generator(X_train, y_train, batch_size)
+    sample_weight = get_sample_weight(np.argmax(y_train, axis=-1), class_weight)
+    sample_probs = sample_weight / sum(sample_weight)
+    batch_gen = batch_generator(X_train, y_train, sample_probs, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
                            steps_per_epoch=steps_per_epoch,
