@@ -1,9 +1,7 @@
 import json
 import random
-from functools import partial, update_wrapper
-from operator import itemgetter
 import os
-from collections import defaultdict
+from collections import deque
 
 import keras
 from keras.layers import (TimeDistributed,
@@ -27,22 +25,17 @@ random.seed(273)
 np.random.seed(273)
 tf.set_random_seed(273)
 
-VOCABULARY_SIZE = 15000
-MAX_INPUT_LENGTH = 80
+MAX_VOCABULARY_SIZE = 15000
+# we have dependencies up to 8 tokens back, so this should do
+MAX_INPUT_LENGTH = 10
 MEAN_WORD_LENGTH = 8
-CONTEXT_LENGTH = 3
-MAX_CHAR_INPUT_LENGTH = CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
+CNN_CONTEXT_LENGTH = 3
+MAX_CHAR_INPUT_LENGTH = CNN_CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
 MODEL_NAME = 'model.h5'
 VOCABULARY_NAME = 'vocab.json'
 CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
-
-
-def wrapped_partial(func, *args, **kwargs):
-    partial_func = partial(func, *args, **kwargs)
-    update_wrapper(partial_func, func)
-    return partial_func
 
 
 def get_sample_weight(in_labels):
@@ -55,25 +48,50 @@ def get_sample_weight(in_labels):
     return sample_weight
 
 
-def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
-    utterances_tokenized, tags = (map(itemgetter(0), in_data_points),
-                                  map(itemgetter(1), in_data_points))
-    tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab)
+def get_class_weight(in_labels):
+    labels_filtered = filter(lambda x: x != 0, in_labels.flatten())
+    class_weight = compute_class_weight('balanced', np.unique(labels_filtered), labels_filtered)
+    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(labels_filtered), class_weight)}
+    class_weight_map[0] = 0.0
+
+    return class_weight
+
+
+def make_data_points(in_tokens, in_tags):
+    contexts, tags = [], []
+    context = deque([], max_len=MAX_INPUT_LENGTH)
+    for token, tag in zip(in_tokens, in_tags):
+        context.append(token)
+        contexts.append(list(context))
+        tags.append(tag)
+    return contexts, tags
+
+
+def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
+    contexts, tags = [], []
+    for idx, row in in_dataset.iterrows():
+        tokens, tags = row['utterance'], row['tags']
+        current_contexts, current_tags = make_data_points(tokens, tags)
+        contexts += current_contexts
+        tags += current_tags
+
+    tokens_vectorized = vectorize_sequences(contexts, in_vocab)
     tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
+
     chars_vectorized = []
-    for utterance_tokenized in utterances_tokenized:
-        contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
-                    for i in xrange(len(utterance_tokenized))]
-        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab)
-        contexts_padded = pad_sequences(contexts_vectorized, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += [contexts_padded]
-    chars_vectorized = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
-    labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab)
-    labels_padded = pad_sequences(labels, MAX_INPUT_LENGTH)
-    sample_weight = get_sample_weight(labels_padded)
-    y = keras.utils.to_categorical(labels_padded, num_classes=len(in_label_vocab))
+    for utterance_tokenized in contexts:
+        char_contexts = [' '.join(utterance_tokenized[max(i - CNN_CONTEXT_LENGTH + 1, 0): i + 1])
+                         for i in xrange(len(utterance_tokenized))]
+        char_contexts_vectorized = vectorize_sequences(char_contexts, in_char_vocab)
+        char_contexts_padded = pad_sequences(char_contexts_vectorized, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += [char_contexts_padded]
+
+    chars_padded = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
+    labels = vectorize_sequences([tags], in_label_vocab)
+
+    y = keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab))
  
-    return [tokens_padded, chars_vectorized], y, sample_weight
+    return [tokens_padded, chars_padded], y
 
 
 def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
@@ -118,7 +136,7 @@ def char_cnn_1d_module(in_char_input, in_vocab_size, in_emb_size):
 
 def rnn_module(in_word_input, in_vocab_size, in_cell_size):
     embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(in_word_input)
-    lstm = LSTM(in_cell_size, return_sequences=True)(embedding)
+    lstm = LSTM(in_cell_size)(embedding)
     return lstm
 
 
@@ -153,7 +171,7 @@ def create_model(in_vocab_size,
     return model
 
 
-def batch_generator(data, labels, weights, batch_size):
+def batch_generator(data, labels, batch_size):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
     Such a generator is required by the parallel nature of the aforementioned
@@ -166,8 +184,7 @@ def batch_generator(data, labels, weights, batch_size):
     while True:
         batch_idx = np.random.choice(data_idx, size=batch_size)
         batch = ([np.take(feature, batch_idx, axis=0) for feature in data],
-                 np.take(labels, batch_idx, axis=0),
-                 np.take(weights, batch_idx, axis=0))
+                 np.take(labels, batch_idx, axis=0))
         yield batch
 
 
@@ -177,19 +194,21 @@ def train(in_model,
           test_data,
           in_checkpoint_filepath,
           label_vocab,
+          class_weight,
           epochs=100,
           batch_size=32,
           steps_per_epoch=1000,
           **kwargs):
-    X_train, y_train, weights_train = train_data
-    X_dev, y_dev, weights_dev = dev_data
-    X_test, y_test, weights_test = test_data
+    X_train, y_train = train_data
+    X_dev, y_dev = dev_data
+    X_test, y_test = test_data
 
-    batch_gen = batch_generator(X_train, y_train, weights_train, batch_size)
+    batch_gen = batch_generator(X_train, y_train, batch_size)
     in_model.fit_generator(generator=batch_gen,
                            epochs=epochs,
                            steps_per_epoch=steps_per_epoch,
-                           validation_data=(X_dev, y_dev, weights_dev),
+                           validation_data=(X_dev, y_dev),
+                           class_weight=class_weight,
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',
                                                                       verbose=1,
@@ -254,7 +273,7 @@ def create_simple_model(in_vocab_size,
     #char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
 
     rnn_cnn_combined = rnn #keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.Dense(256, activation='relu')(rnn_cnn_combined)
+    output = keras.layers.Dense(in_cell_size, activation='relu')(rnn_cnn_combined)
     output = keras.layers.Dropout(0.5)(output)
     # output = keras.layers.Dense(128, activation='relu')(output)
     # output = keras.layers.Dropout(0.5)(output)
@@ -266,8 +285,7 @@ def create_simple_model(in_vocab_size,
     opt = keras.optimizers.Adam(lr=lr, clipnorm=10.0)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
-                  metrics=['accuracy'],
-                  sample_weight_mode='temporal')
+                  metrics=['accuracy'])
     return model
 
 
