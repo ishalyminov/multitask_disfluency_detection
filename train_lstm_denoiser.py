@@ -61,7 +61,7 @@ def main(in_dataset_folder, in_model_folder):
           label_vocab,
           batch_size=32,
           epochs=100,
-          steps_per_epoch=10)
+          steps_per_epoch=1000)
 
 
 if __name__ == '__main__':

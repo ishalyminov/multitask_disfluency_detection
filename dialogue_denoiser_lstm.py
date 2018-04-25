@@ -19,8 +19,8 @@ import tensorflow as tf
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 
-from data_utils import vectorize_sequences, PAD_ID
-from deep_disfluency_utils import group_tags
+from data_utils import vectorize_sequences, pad_sequences, PAD_ID
+from deep_disfluency_utils import make_tag_mapping
 from metrics import DisfluencyDetectionF1Score
 
 random.seed(273)
@@ -45,34 +45,35 @@ def wrapped_partial(func, *args, **kwargs):
     return partial_func
 
 
+def get_sample_weight(in_labels):
+    labels_filtered = filter(lambda x: x != 0, in_labels.flatten())
+    class_weight = compute_class_weight('balanced', np.unique(labels_filtered), labels_filtered)
+    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(labels_filtered), class_weight)}
+    class_weight_map[0] = 0.0
+
+    sample_weight = np.vectorize(class_weight_map.get)(in_labels)
+    return sample_weight
+
+
 def make_dataset(in_data_points, in_vocab, in_char_vocab, in_label_vocab):
     utterances_tokenized, tags = (map(itemgetter(0), in_data_points),
                                   map(itemgetter(1), in_data_points))
-    tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab, MAX_INPUT_LENGTH)
+    tokens_vectorized = vectorize_sequences(utterances_tokenized, in_vocab)
+    tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
     chars_vectorized = []
     for utterance_tokenized in utterances_tokenized:
         contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
                     for i in xrange(len(utterance_tokenized))]
-        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += [contexts_vectorized]
-    chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
-                                                                  value=PAD_ID,
-                                                                  maxlen=MAX_INPUT_LENGTH)
-    labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab, MAX_INPUT_LENGTH)
-    y = keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
-    labels_flattened = labels.flatten()
-    class_freq_dict = defaultdict(lambda: 0)
-    for label in labels_flattened:
-        class_freq_dict[label] += 1
-    class_weight_map = {idx: value
-                        for idx, value in enumerate(compute_class_weight('balanced',
-                                                                         np.unique(labels_flattened),
-                                                                         labels_flattened))}
-    # set_class_label = np.vectorize(lambda x: class_weight_map[x])
-    # sample_weight = set_class_label(labels)
-    class_weight_map = dict(map(lambda (x, y): (x, 1.0), class_freq_dict.iteritems()))
-    sample_weight = np.vectorize(class_weight_map.get)(labels)
-    return [tokens_vectorized, chars_vectorized], y, sample_weight
+        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab)
+        contexts_padded = pad_sequences(contexts_vectorized, MAX_CHAR_INPUT_LENGTH)
+        chars_vectorized += [contexts_padded]
+    chars_vectorized = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
+    labels = vectorize_sequences(map(itemgetter(1), in_data_points), in_label_vocab)
+    labels_padded = pad_sequences(labels, MAX_INPUT_LENGTH)
+    sample_weight = get_sample_weight(labels_padded)
+    y = keras.utils.to_categorical(labels_padded, num_classes=len(in_label_vocab))
+ 
+    return [tokens_padded, chars_vectorized], y, sample_weight
 
 
 def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
@@ -205,7 +206,7 @@ def train(in_model,
                                                                         factor=0.2,
                                                                         patience=5,
                                                                         min_lr=0.001),
-                                      DisfluencyDetectionF1Score(group_tags(label_vocab))])
+                                      DisfluencyDetectionF1Score(make_tag_mapping(label_vocab, mode=None))])
     test_loss = in_model.evaluate(x=X_test, y=y_test)
     print 'Evaluation results on testset'
     print 'Metrics: ', test_loss
@@ -218,16 +219,14 @@ def predict(in_model, X):
 
 def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
     tokens = [in_line.lower().split()]
-    tokens_vectorized = vectorize_sequences(tokens, in_vocab, MAX_INPUT_LENGTH)
+    tokens_vectorized = vectorize_sequences(tokens, in_vocab)
     chars_vectorized = []
     for utterance_tokenized in tokens:
         contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
                     for i in xrange(len(utterance_tokenized))]
-        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab, MAX_CHAR_INPUT_LENGTH)
+        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab)
         chars_vectorized += [contexts_vectorized]
-    chars_vectorized = keras.preprocessing.sequence.pad_sequences(chars_vectorized,
-                                                                  value=PAD_ID,
-                                                                  maxlen=MAX_INPUT_LENGTH)
+    chars_vectorized = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
 
     predicted = predict(in_model, tokens_vectorized)[0]
     result_tokens = map(lambda x: in_rev_label_vocab[x], predicted[:len(tokens[0])])

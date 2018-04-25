@@ -43,7 +43,11 @@ def main(in_result_folder):
                                                  representation='disf3',
                                                  limit=8,
                                                  convert_to_dnn_format=True)
+    print 'Trainset size: {} utterances'.format(len(train[0]))
+    print 'Devset size: {} utterances'.format(len(dev[0]))
+    print 'Testset size: {} utterances'.format(len(test[0]))
     unique_train_tags = get_unique_elements(train[4])
+    print 'Unique #tags in trainset: {}'.format(len(unique_train_tags))
     unique_dev_tags = get_unique_elements(dev[4])
     unique_test_tags = get_unique_elements(test[4])
     if not os.path.exists(in_result_folder):

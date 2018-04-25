@@ -5,18 +5,6 @@ from keras.callbacks import Callback
 from sklearn.metrics import f1_score
 
 
-class ZeroPaddedF1Score(Callback):
-    def on_train_begin(self, logs={}):
-        self.val_f1s = []
-
-    def on_epoch_end(self, epoch, logs={}):
-        val_f1 = zero_padded_f1(self.validation_data[1],
-                                self.model.predict(self.validation_data[:1]))
-        self.val_f1s.append(val_f1)
-        print u' - val_f1: {}'.format(u' - '.join([u'{}: {:.3f}'.format(class_id, class_f1)
-                                                   for class_id, class_f1 in enumerate(val_f1)]))
-
-
 class DisfluencyDetectionF1Score(Callback):
     def __init__(self, in_tag_clusters={}):
         self.tag_clusters = in_tag_clusters
@@ -25,11 +13,17 @@ class DisfluencyDetectionF1Score(Callback):
         self.val_f1s = []
 
     def on_epoch_end(self, epoch, logs={}):
-        predicted = self.model.predict(self.validation_data[:1])
+        y_pred = np.argmax(self.model.predict(self.validation_data[:1]), axis=-1)
+        y_true = np.argmax(self.validation_data[1], axis=-1)
+        y_pred_flat, y_true_flat = [], []
+        for y_pred_i, y_true_i in zip(y_pred.flatten(), y_true.flatten()):
+            if y_true_i != 0:
+                y_pred_flat.append(y_pred_i)
+                y_true_flat.append(y_true_i)
         val_f1_map = {}
         for name, tags in self.tag_clusters.iteritems():
-            val_f1 = zero_padded_f1(self.validation_data[1],
-                                    predicted,
+            val_f1 = zero_padded_f1(y_true_flat,
+                                    y_pred_flat,
                                     labels=tags)
             val_f1_map[name] = val_f1
         self.val_f1s.append(val_f1_map)
@@ -38,10 +32,7 @@ class DisfluencyDetectionF1Score(Callback):
 
 
 def zero_padded_f1(y_true, y_pred, labels=None):
-    f1_labels = range(1, y_true.shape[-1]) if not labels else labels
-    y_true_flat = np.argmax(y_true, axis=-1).flatten()
-    y_pred_flat = np.argmax(y_pred, axis=-1).flatten()
-    result = f1_score(y_true_flat, y_pred_flat, labels=f1_labels, average='macro')
+    result = f1_score(y_true, y_pred, labels=labels, average='macro')
     return result 
 
 

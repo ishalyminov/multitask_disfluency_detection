@@ -32,13 +32,17 @@ def make_vocabulary(in_lines, max_vocabulary_size, special_tokens=[PAD, UNK], fr
     return vocab, rev_vocab
 
 
-def vectorize_sequences(in_sequences, in_vocab, max_input_length):
+def vectorize_sequences(in_sequences, in_vocab):
     sequences_vectorized = []
     for sequence in in_sequences:
         sequences_vectorized.append([in_vocab.get(token, UNK_ID) for token in sequence])
-    return keras.preprocessing.sequence.pad_sequences(sequences_vectorized,
-                                                      value=PAD_ID,
-                                                      maxlen=max_input_length,
+    return sequences_vectorized
+
+
+def pad_sequences(in_sequences, in_max_input_length, value=PAD_ID):
+    return keras.preprocessing.sequence.pad_sequences(in_sequences,
+                                                      value=value,
+                                                      maxlen=in_max_input_length,
                                                       padding='post')
 
 
