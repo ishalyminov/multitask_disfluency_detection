@@ -43,6 +43,6 @@ def pad_sequences(in_sequences, in_max_input_length, value=PAD_ID):
     return keras.preprocessing.sequence.pad_sequences(in_sequences,
                                                       value=value,
                                                       maxlen=in_max_input_length,
-                                                      padding='post')
+                                                      padding='pre')
 
 

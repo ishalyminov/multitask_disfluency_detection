@@ -49,17 +49,15 @@ def get_sample_weight(in_labels):
 
 
 def get_class_weight(in_labels):
-    labels_filtered = filter(lambda x: x != 0, in_labels.flatten())
-    class_weight = compute_class_weight('balanced', np.unique(labels_filtered), labels_filtered)
-    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(labels_filtered), class_weight)}
-    class_weight_map[0] = 0.0
+    class_weight = compute_class_weight(None, np.unique(in_labels), in_labels)
+    class_weight_map = {class_id: weight for class_id, weight in zip(np.unique(in_labels), class_weight)}
 
-    return class_weight
+    return class_weight_map
 
 
 def make_data_points(in_tokens, in_tags):
     contexts, tags = [], []
-    context = deque([], max_len=MAX_INPUT_LENGTH)
+    context = deque([], maxlen=MAX_INPUT_LENGTH)
     for token, tag in zip(in_tokens, in_tags):
         context.append(token)
         contexts.append(list(context))
@@ -70,8 +68,7 @@ def make_data_points(in_tokens, in_tags):
 def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
-        tokens, tags = row['utterance'], row['tags']
-        current_contexts, current_tags = make_data_points(tokens, tags)
+        current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
         contexts += current_contexts
         tags += current_tags
 
