@@ -27,7 +27,7 @@ tf.set_random_seed(273)
 
 MAX_VOCABULARY_SIZE = 15000
 # we have dependencies up to 8 tokens back, so this should do
-MAX_INPUT_LENGTH = 10
+MAX_INPUT_LENGTH = 20 
 MEAN_WORD_LENGTH = 8
 CNN_CONTEXT_LENGTH = 3
 MAX_CHAR_INPUT_LENGTH = CNN_CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
@@ -65,9 +65,12 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
         current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
-        contexts += current_contexts
-        tags += current_tags
-
+        for context, tag in zip(current_contexts, current_tags):
+            if tag in in_label_vocab:
+                contexts.append(context)
+                tags.append(tag)
+        #contexts += current_contexts
+        #tags += current_tags
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
     tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
 
@@ -129,7 +132,7 @@ def char_cnn_1d_module(in_char_input, in_vocab_size, in_emb_size):
 
 def rnn_module(in_word_input, in_vocab_size, in_cell_size):
     embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(in_word_input)
-    lstm = LSTM(in_cell_size)(embedding)
+    lstm = LSTM(in_cell_size, return_sequences=False)(embedding)
     return lstm
 
 
@@ -164,7 +167,7 @@ def create_model(in_vocab_size,
     return model
 
 
-def batch_generator(data, labels, sample_probabilities, batch_size):
+def batch_generator(data, labels, batch_size, sample_probabilities=None):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
     Such a generator is required by the parallel nature of the aforementioned
@@ -198,12 +201,15 @@ def train(in_model,
 
     sample_weight = get_sample_weight(np.argmax(y_train, axis=-1), class_weight)
     sample_probs = sample_weight / sum(sample_weight)
-    batch_gen = batch_generator(X_train, y_train, sample_probs, batch_size)
-    in_model.fit_generator(generator=batch_gen,
+    batch_gen = batch_generator(X_train, y_train, batch_size, None)
+    in_model.fit(#generator=batch_gen,
+                           x=X_train,
+                           y=y_train,
+                           shuffle=True,
                            epochs=epochs,
-                           steps_per_epoch=steps_per_epoch,
-                           validation_data=(X_dev, y_dev),
-                           class_weight=class_weight,
+                           # steps_per_epoch=steps_per_epoch,
+                           validation_data=(X_train, y_train),
+                           # class_weight=class_weight,
                            callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
                                                                       monitor='val_loss',
                                                                       verbose=1,
@@ -269,7 +275,7 @@ def create_simple_model(in_vocab_size,
 
     rnn_cnn_combined = rnn #keras.layers.Concatenate()([rnn, char_cnn])
     output = keras.layers.Dense(in_cell_size, activation='relu')(rnn_cnn_combined)
-    output = keras.layers.Dropout(0.5)(output)
+    output = keras.layers.Dropout(0.1)(output)
     # output = keras.layers.Dense(128, activation='relu')(output)
     # output = keras.layers.Dropout(0.5)(output)
     output = keras.layers.Dense(in_classes_number,
@@ -277,7 +283,7 @@ def create_simple_model(in_vocab_size,
                                 name='labels')(output)
     model = keras.Model(inputs=[word_input], outputs=[output])
 
-    opt = keras.optimizers.Adam(lr=lr, clipnorm=10.0)
+    opt = keras.optimizers.SGD(lr=lr)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])

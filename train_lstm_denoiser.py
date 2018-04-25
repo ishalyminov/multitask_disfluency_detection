@@ -28,7 +28,8 @@ def main(in_dataset_folder, in_model_folder):
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
     vocab, _ = make_vocabulary(trainset['utterance'].values, MAX_VOCABULARY_SIZE)
     char_vocab = make_char_vocabulary()
-    label_vocab, _ = make_vocabulary(trainset['tags'].values, MAX_VOCABULARY_SIZE, special_tokens=[PAD])
+    label_vocab, _ = make_vocabulary(trainset['tags'].values, MAX_VOCABULARY_SIZE, special_tokens=[])
+    label_vocab = {key: idx for idx, key in enumerate(filter(lambda x: x.startswith('<rm-4'), label_vocab.keys()))}
     X_train, y_train = make_dataset(trainset, vocab, char_vocab, label_vocab)
     X_dev, y_dev = make_dataset(devset, vocab, char_vocab, label_vocab)
     X_test, y_test = make_dataset(testset, vocab, char_vocab, label_vocab)
@@ -37,7 +38,7 @@ def main(in_dataset_folder, in_model_folder):
 
     model = create_simple_model(len(vocab),
                                 len(char_vocab),
-                                128,  # word embedding size
+                                256,  # word embedding size
                                 32,  # char embedding size
                                 MAX_INPUT_LENGTH,
                                 MAX_CHAR_INPUT_LENGTH,
@@ -50,7 +51,7 @@ def main(in_dataset_folder, in_model_folder):
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
-          batch_size=32,
+          batch_size=8,
           epochs=100,
           steps_per_epoch=1000)
 
