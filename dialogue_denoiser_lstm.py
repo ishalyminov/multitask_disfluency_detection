@@ -84,7 +84,7 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     return [tokens_padded, chars_padded], y
 
 
-def batch_generator(data, labels, batch_size, sample_probabilities=None):
+def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
     Such a generator is required by the parallel nature of the aforementioned
@@ -101,6 +101,15 @@ def batch_generator(data, labels, batch_size, sample_probabilities=None):
         yield batch
 
 
+def batch_generator(X, y, batch_size):
+    batch_start_idx = 0
+    while batch_start_idx < X.shape[0]:
+        batch = ([X[batch_start_idx: batch_start_idx + batch_size]],
+                 y[batch_start_idx: batch_start_idx + batch_size])
+        batch_start_idx += batch_size
+        yield batch
+
+
 def train(in_model,
           train_data,
           dev_data,
@@ -108,6 +117,7 @@ def train(in_model,
           in_checkpoint_filepath,
           label_vocab,
           class_weight,
+          learning_rate=0.01,
           epochs=100,
           batch_size=32,
           steps_per_epoch=1000,
@@ -120,7 +130,7 @@ def train(in_model,
 
     # Define loss and optimizer
     loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(loss_op)
 
     # Evaluate model (with test logits, for dropout to be disabled)
@@ -132,7 +142,7 @@ def train(in_model,
     init = tf.global_variables_initializer()
     # Start training
     with tf.Session() as sess:
-        batch_gen = batch_generator(X_train, y_train, batch_size)
+        batch_gen = random_batch_generator(X_train, y_train, batch_size)
         # Run the initializer
         sess.run(init)
 
@@ -142,21 +152,47 @@ def train(in_model,
             # Run optimization op (backprop)
             sess.run(train_op, feed_dict={X: batch_x[0], y: batch_y})
             if step % 100 == 0:
-                # Calculate batch loss and accuracy
-                y_true_train, y_pred_train, loss_train, acc_train = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
-                                                                             feed_dict={X: X_train[0], y: y_train})
-                print "Step " + str(step) + \
-                      ", train loss= {:.4f}".format(loss_train) + \
-                      ", train acc= {:.3f}".format(acc_train) + \
-                      ", train F1= {:.3f}".format(sk.metrics.f1_score(y_true_train, y_pred_train, average='macro'))
-                y_true_dev, y_pred_dev, loss_dev, acc_dev = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
-                                                                     feed_dict={X: X_dev[0], y: y_dev})
-                print "Step " + str(step) + \
-                      ", dev set Loss= {:.4f}".format(loss_dev) + \
-                      ", dev acc= {:.3f}".format(acc_dev) + \
-                      ", dev F1= {:.3f}".format(sk.metrics.f1_score(y_true_dev, y_pred_dev, average='macro'))
-        print "Optimization Finished!"
 
+                train_eval = evaluate(in_model, train_data, sess)
+                print 'Step {} eval: '.format(step), '; '.join(['train {}: {:.3f}'.format(key, value)
+                                                                for key, value in train_eval.iteritems()])
+                dev_eval = evaluate(in_model, dev_data, sess)
+                print 'Step {} eval: '.format(step), '; '.join(
+                    ['dev {}: {:.3f}'.format(key, value)
+                     for key, value in train_eval.iteritems()])
+    print "Optimization Finished!"
+
+
+def evaluate(in_model,
+             in_dataset,
+             in_session,
+             batch_size=32):
+    X_test, y_test = in_dataset
+
+    X, y, logits = in_model
+
+    # Evaluate model (with test logits, for dropout to be disabled)
+    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
+    y_pred_op = tf.argmax(logits, 1)
+    y_true_op = tf.argmax(y, 1)
+    correct_pred = tf.equal(y_pred_op, y_true_op)
+    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+    # Start training
+    batch_gen = batch_generator(X_test, y_test, batch_size)
+
+    y_true, y_pred, batch_losses, batch_accuracies = [], [], [], []
+    for batch_x, batch_y in batch_gen:
+        y_true_batch, y_pred_batch, loss_batch, acc_batch = in_session.run([y_true_op, y_pred_op, loss_op, accuracy],
+                                                                           feed_dict={X: batch_x, y: batch_y})
+        y_true += y_true_batch
+        y_pred += y_pred_batch
+        batch_losses.append(loss_batch)
+        batch_accuracies.append(acc_batch)
+
+    return {'f1': sk.metrics.f1_score(y_true, y_pred, average='macro'),
+            'loss': np.mean(batch_losses),
+            'acc': np.mean(batch_accuracies)}
 
 def predict(in_model, X):
     model_out = in_model.predict(X)

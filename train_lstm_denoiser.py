@@ -11,7 +11,8 @@ from dialogue_denoiser_lstm import (create_model,
                                     make_dataset,
                                     MAX_INPUT_LENGTH,
                                     MAX_VOCABULARY_SIZE,
-                                    MODEL_NAME, MAX_CHAR_INPUT_LENGTH, get_class_weight)
+                                    MODEL_NAME,
+                                    get_class_weight)
 
 
 def configure_argument_parser():
@@ -44,6 +45,7 @@ def main(in_dataset_folder, in_model_folder):
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
+          learning_rate=0.01
           batch_size=8,
           epochs=100,
           steps_per_epoch=1000)
