@@ -4,8 +4,8 @@ import os
 import numpy as np
 import pandas as pd
 
-from data_utils import make_vocabulary, make_char_vocabulary, PAD
-from dialogue_denoiser_lstm import (create_simple_model,
+from data_utils import make_vocabulary, make_char_vocabulary
+from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     save,
                                     make_dataset,
@@ -36,14 +36,7 @@ def main(in_dataset_folder, in_model_folder):
     class_weight = get_class_weight(np.argmax(y_train, axis=-1))
     save(None, vocab, char_vocab, label_vocab, in_model_folder, save_model=False)
 
-    model = create_simple_model(len(vocab),
-                                len(char_vocab),
-                                256,  # word embedding size
-                                32,  # char embedding size
-                                MAX_INPUT_LENGTH,
-                                MAX_CHAR_INPUT_LENGTH,
-                                len(label_vocab),
-                                0.01)
+    model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
     train(model,
           ([X_train[0]], y_train),
           ([X_dev[0]], y_dev),

@@ -4,16 +4,10 @@ import os
 from collections import deque
 
 import keras
-from keras.layers import (TimeDistributed,
-                          Embedding,
-                          Conv1D,
-                          Conv2D,
-                          MaxPool1D,
-                          MaxPool2D,
-                          Flatten,
-                          LSTM,
-                          Reshape)
+import sklearn as sk
 import tensorflow as tf
+from tensorflow.contrib import rnn
+
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 
@@ -90,83 +84,6 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     return [tokens_padded, chars_padded], y
 
 
-def char_cnn_module(in_char_input, in_vocab_size, in_emb_size):
-    """
-        Zhang and LeCun, 2015
-    """
-    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size, mask_zero=True))(in_char_input)
-    model = TimeDistributed(Reshape((27, in_emb_size, 1)))(model)
-    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu', name='chars'))(model)
-    model = TimeDistributed(MaxPool2D((3, 3)))(model)
-
-    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu'))(model)
-    model = TimeDistributed(MaxPool2D((1, 1)))(model)
-
-    model = TimeDistributed(Conv2D(32, (3, 3), activation='relu'))(model)
-    model = TimeDistributed(MaxPool2D((1, 1)))(model)
-
-    model = TimeDistributed(Flatten())(model)
-
-    return model
-
-
-def char_cnn_1d_module(in_char_input, in_vocab_size, in_emb_size):
-    """
-        Zhang and LeCun, 2015
-    """
-    model = TimeDistributed(Embedding(in_vocab_size, in_emb_size, mask_zero=True))(in_char_input)
-    # model = TimeDistributed(Reshape((27, in_emb_size, 1)))(model)
-    model = TimeDistributed(Conv1D(32, 3, activation='relu', name='chars'))(model)
-    model = TimeDistributed(MaxPool1D(3))(model)
-
-    model = TimeDistributed(Conv1D(32, 3, activation='relu'))(model)
-    model = TimeDistributed(MaxPool1D(1))(model)
-
-    model = TimeDistributed(Conv1D(32, 3, activation='relu'))(model)
-    model = TimeDistributed(MaxPool1D(1))(model)
-
-    model = TimeDistributed(Flatten())(model)
-
-    return model
-
-
-def rnn_module(in_word_input, in_vocab_size, in_cell_size):
-    embedding = Embedding(in_vocab_size, in_cell_size, mask_zero=True)(in_word_input)
-    lstm = LSTM(in_cell_size, return_sequences=False)(embedding)
-    return lstm
-
-
-def create_model(in_vocab_size,
-                 in_char_vocab_size,
-                 in_cell_size,
-                 in_char_cell_size,
-                 in_max_input_length,
-                 in_max_char_input_length,
-                 in_classes_number,
-                 lr):
-    word_input = keras.layers.Input(shape=(in_max_input_length,))
-    # char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
-    rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
-    # char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
-
-    rnn_cnn_combined = rnn # keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.TimeDistributed(keras.layers.Dense(128, activation='relu'))(rnn_cnn_combined)
-    # output = keras.layers.Dropout(0.5)(output)
-    # output = keras.layers.Dense(128, activation='relu')(output)
-    # output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.TimeDistributed(keras.layers.Dense(in_classes_number,
-                                                             activation='softmax',
-                                                             name='labels'))(output)
-    model = keras.Model(inputs=[word_input], outputs=[output])
-
-    opt = keras.optimizers.Adam(lr=lr, clipnorm=5.0)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'],
-                  sample_weight_mode='temporal')
-    return model
-
-
 def batch_generator(data, labels, batch_size, sample_probabilities=None):
     """Generator used by `keras.models.Sequential.fit_generator` to yield batches
     of pairs.
@@ -199,8 +116,7 @@ def train(in_model,
     X_dev, y_dev = dev_data
     X_test, y_test = test_data
 
-    x, y, logits = in_model
-    prediction = tf.nn.softmax(logits)
+    X, y, logits = in_model
 
     y = tf.placeholder("float", [None, 3])
     # Define loss and optimizer
@@ -209,7 +125,9 @@ def train(in_model,
     train_op = optimizer.minimize(loss_op)
 
     # Evaluate model (with test logits, for dropout to be disabled)
-    correct_pred = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
+    y_pred_op = tf.argmax(logits, 1)
+    y_true_op = tf.argmax(y, 1)
+    correct_pred = tf.equal(y_pred_op, y_true_op)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
     init = tf.global_variables_initializer()
@@ -223,15 +141,15 @@ def train(in_model,
         for batch_x, batch_y in batch_gen:
             step += 1
             # Run optimization op (backprop)
-            sess.run(train_op, feed_dict={x: batch_x[0], y: batch_y})
-            if step % 100 == 0:
+            sess.run(train_op, feed_dict={X: batch_x[0], y: batch_y})
+            if step % 1000 == 0:
                 # Calculate batch loss and accuracy
-                loss, acc = sess.run([loss_op, accuracy], feed_dict={x: X_train[0],
-                                                                 y: y_train})
-                print "Step " + str(step) + ", Training set Loss= " + \
-                      "{:.4f}".format(loss) + ", Training Accuracy= " + \
-                      "{:.3f}".format(acc)
-
+                y_true, y_pred, loss, acc = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
+                                                      feed_dict={X: X_dev[0], y: y_dev})
+                print "Step " + str(step) + \
+                      ", Dev set Loss= {:.4f}".format(loss) + \
+                      ", Dev acc= {:.3f}".format(acc) + \
+                      ", Dev F1= {:.3f}".format(sk.metrics.f1_score(y_true, y_pred))
         print "Optimization Finished!"
 
 
@@ -262,31 +180,25 @@ def evaluate(in_model, X, y):
     return sum([int(np.array_equal(y_pred_i, y_gold_i))
                 for y_pred_i, y_gold_i in zip(y_pred, y_gold)]) / float(y.shape[0])
 
-import tensorflow as tf
-from tensorflow.contrib import rnn
 
-def create_simple_model(in_vocab_size,
-                        in_char_vocab_size,
-                        in_cell_size,
-                        in_char_cell_size,
-                        in_max_input_length,
-                        in_max_char_input_length,
-                        in_classes_number,
-                        lr):
-    x = tf.placeholder(tf.int32, [None, in_max_input_length])
-    y = tf.placeholder(tf.int32, [None, in_classes_number])
+def create_model(in_vocab_size,
+                 in_cell_size,
+                 in_max_input_length,
+                 in_classes_number):
+    X = tf.placeholder(tf.int16, [None, in_max_input_length])
+    y = tf.placeholder(tf.int16, [None, in_classes_number])
     embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))
-    emb = tf.nn.embedding_lookup(embeddings, x)
-    # Define a lstm cell with tensorflow
+    emb = tf.nn.embedding_lookup(embeddings, X)
+
     lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0)
 
-    # Get lstm cell output
     outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-    weights = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]))
-    biases = tf.Variable(tf.random_normal([in_classes_number]))
-    # Linear activation, using rnn inner loop last output
-    return (x, y, tf.add(tf.matmul(outputs[:,-1,:], weights), biases))
+    W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]))
+    b = tf.Variable(tf.random_normal([in_classes_number]))
+
+    return X, y, tf.add(tf.matmul(outputs[:,-1,:], W), b)
+
 
 def load(in_model_folder):
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
