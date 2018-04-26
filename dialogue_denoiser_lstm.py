@@ -96,15 +96,15 @@ def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
     data_idx = range(labels.shape[0])
     while True:
         batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probabilities)
-        batch = ([np.take(feature, batch_idx, axis=0) for feature in data],
+        batch = (np.take(data, batch_idx, axis=0),
                  np.take(labels, batch_idx, axis=0))
         yield batch
 
 
 def batch_generator(X, y, batch_size):
     batch_start_idx = 0
-    while batch_start_idx < X.shape[0]:
-        batch = ([X[batch_start_idx: batch_start_idx + batch_size]],
+    while batch_start_idx < y.shape[0]:
+        batch = (X[batch_start_idx: batch_start_idx + batch_size],
                  y[batch_start_idx: batch_start_idx + batch_size])
         batch_start_idx += batch_size
         yield batch
@@ -150,16 +150,15 @@ def train(in_model,
         for batch_x, batch_y in batch_gen:
             step += 1
             # Run optimization op (backprop)
-            sess.run(train_op, feed_dict={X: batch_x[0], y: batch_y})
+            sess.run(train_op, feed_dict={X: batch_x, y: batch_y})
             if step % 100 == 0:
-
-                train_eval = evaluate(in_model, train_data, sess)
-                print 'Step {} eval: '.format(step), '; '.join(['train {}: {:.3f}'.format(key, value)
-                                                                for key, value in train_eval.iteritems()])
+                print 'Step {} eval'.format(step) 
+                # train_eval = evaluate(in_model, train_data, sess)
+                # print '; '.join(['train {}: {:.3f}'.format(key, value)
+                #                  for key, value in train_eval.iteritems()])
                 dev_eval = evaluate(in_model, dev_data, sess)
-                print 'Step {} eval: '.format(step), '; '.join(
-                    ['dev {}: {:.3f}'.format(key, value)
-                     for key, value in train_eval.iteritems()])
+                print '; '.join(['dev {}: {:.3f}'.format(key, value)
+                                 for key, value in dev_eval.iteritems()])
     print "Optimization Finished!"
 
 
@@ -181,16 +180,16 @@ def evaluate(in_model,
     # Start training
     batch_gen = batch_generator(X_test, y_test, batch_size)
 
-    y_true, y_pred, batch_losses, batch_accuracies = [], [], [], []
-    for batch_x, batch_y in batch_gen:
-        y_true_batch, y_pred_batch, loss_batch, acc_batch = in_session.run([y_true_op, y_pred_op, loss_op, accuracy],
-                                                                           feed_dict={X: batch_x, y: batch_y})
-        y_true += y_true_batch
-        y_pred += y_pred_batch
+    batch_losses, batch_accuracies = [], []
+    y_pred = np.zeros(y_test.shape[0])
+    for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
+        y_pred_batch, loss_batch, acc_batch = in_session.run([y_pred_op, loss_op, accuracy],
+                                                              feed_dict={X: batch_x, y: batch_y})
+        y_pred[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch
         batch_losses.append(loss_batch)
         batch_accuracies.append(acc_batch)
 
-    return {'f1': sk.metrics.f1_score(y_true, y_pred, average='macro'),
+    return {'f1': sk.metrics.f1_score(np.argmax(y_test, 1), y_pred, average='macro'),
             'loss': np.mean(batch_losses),
             'acc': np.mean(batch_accuracies)}
 
@@ -213,13 +212,6 @@ def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab)
     predicted = predict(in_model, tokens_vectorized)[0]
     result_tokens = map(lambda x: in_rev_label_vocab[x], predicted[:len(tokens[0])])
     return ' '.join(result_tokens)
-
-
-def evaluate(in_model, X, y):
-    y_pred = np.argmax(in_model.predict(X), axis=-1)
-    y_gold = np.argmax(y, axis=-1)
-    return sum([int(np.array_equal(y_pred_i, y_gold_i))
-                for y_pred_i, y_gold_i in zip(y_pred, y_gold)]) / float(y.shape[0])
 
 
 def create_model(in_vocab_size,

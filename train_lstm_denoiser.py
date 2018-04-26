@@ -39,13 +39,13 @@ def main(in_dataset_folder, in_model_folder):
 
     model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
     train(model,
-          ([X_train[0]], y_train),
-          ([X_dev[0]], y_dev),
-          ([X_test[0]], y_test),
+          (X_train[0], y_train),
+          (X_dev[0], y_dev),
+          (X_test[0], y_test),
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
-          learning_rate=0.01
+          learning_rate=0.01,
           batch_size=8,
           epochs=100,
           steps_per_epoch=1000)
