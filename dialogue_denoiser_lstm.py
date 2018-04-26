@@ -199,37 +199,40 @@ def train(in_model,
     X_dev, y_dev = dev_data
     X_test, y_test = test_data
 
-    sample_weight = get_sample_weight(np.argmax(y_train, axis=-1), class_weight)
-    sample_probs = sample_weight / sum(sample_weight)
-    batch_gen = batch_generator(X_train, y_train, batch_size, None)
-    in_model.fit(#generator=batch_gen,
-                           x=X_train,
-                           y=y_train,
-                           shuffle=True,
-                           epochs=epochs,
-                           # steps_per_epoch=steps_per_epoch,
-                           validation_data=(X_train, y_train),
-                           # class_weight=class_weight,
-                           callbacks=[keras.callbacks.ModelCheckpoint(in_checkpoint_filepath,
-                                                                      monitor='val_loss',
-                                                                      verbose=1,
-                                                                      save_best_only=True,
-                                                                      save_weights_only=False,
-                                                                      mode='auto',
-                                                                      period=1),
-                                      keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                                    min_delta=0,
-                                                                    patience=10,
-                                                                    verbose=1,
-                                                                    mode='auto'),
-                                      keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
-                                                                        factor=0.2,
-                                                                        patience=5,
-                                                                        min_lr=0.001),
-                                      DisfluencyDetectionF1Score(make_tag_mapping(label_vocab, mode=None))])
-    test_loss = in_model.evaluate(x=X_test, y=y_test)
-    print 'Evaluation results on testset'
-    print 'Metrics: ', test_loss
+    x, y, logits = in_model
+    prediction = tf.nn.softmax(logits)
+
+    y = tf.placeholder("float", [None, 3])
+    # Define loss and optimizer
+    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
+    train_op = optimizer.minimize(loss_op)
+
+    # Evaluate model (with test logits, for dropout to be disabled)
+    correct_pred = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+    init = tf.global_variables_initializer()
+    # Start training
+    with tf.Session() as sess:
+        batch_gen = batch_generator(X_train, y_train, batch_size)
+        # Run the initializer
+        sess.run(init)
+
+        step = 0
+        for batch_x, batch_y in batch_gen:
+            step += 1
+            # Run optimization op (backprop)
+            sess.run(train_op, feed_dict={x: batch_x[0], y: batch_y})
+            if step % 100 == 0:
+                # Calculate batch loss and accuracy
+                loss, acc = sess.run([loss_op, accuracy], feed_dict={x: X_train[0],
+                                                                 y: y_train})
+                print "Step " + str(step) + ", Training set Loss= " + \
+                      "{:.4f}".format(loss) + ", Training Accuracy= " + \
+                      "{:.3f}".format(acc)
+
+        print "Optimization Finished!"
 
 
 def predict(in_model, X):
@@ -259,6 +262,8 @@ def evaluate(in_model, X, y):
     return sum([int(np.array_equal(y_pred_i, y_gold_i))
                 for y_pred_i, y_gold_i in zip(y_pred, y_gold)]) / float(y.shape[0])
 
+import tensorflow as tf
+from tensorflow.contrib import rnn
 
 def create_simple_model(in_vocab_size,
                         in_char_vocab_size,
@@ -268,27 +273,20 @@ def create_simple_model(in_vocab_size,
                         in_max_char_input_length,
                         in_classes_number,
                         lr):
-    word_input = keras.layers.Input(shape=(in_max_input_length,))
-    #char_input = keras.layers.Input(shape=(in_max_input_length, in_max_char_input_length))
-    rnn = rnn_module(word_input, in_vocab_size, in_cell_size)
-    #char_cnn = char_cnn_module(char_input, in_char_vocab_size, in_char_cell_size)
+    x = tf.placeholder(tf.int32, [None, in_max_input_length])
+    y = tf.placeholder(tf.int32, [None, in_classes_number])
+    embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))
+    emb = tf.nn.embedding_lookup(embeddings, x)
+    # Define a lstm cell with tensorflow
+    lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0)
 
-    rnn_cnn_combined = rnn #keras.layers.Concatenate()([rnn, char_cnn])
-    output = keras.layers.Dense(in_cell_size, activation='relu')(rnn_cnn_combined)
-    output = keras.layers.Dropout(0.1)(output)
-    # output = keras.layers.Dense(128, activation='relu')(output)
-    # output = keras.layers.Dropout(0.5)(output)
-    output = keras.layers.Dense(in_classes_number,
-                                activation='softmax',
-                                name='labels')(output)
-    model = keras.Model(inputs=[word_input], outputs=[output])
+    # Get lstm cell output
+    outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-    opt = keras.optimizers.SGD(lr=lr)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'])
-    return model
-
+    weights = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]))
+    biases = tf.Variable(tf.random_normal([in_classes_number]))
+    # Linear activation, using rnn inner loop last output
+    return (x, y, tf.add(tf.matmul(outputs[:,-1,:], weights), biases))
 
 def load(in_model_folder):
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
