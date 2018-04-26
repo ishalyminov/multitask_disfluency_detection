@@ -29,7 +29,7 @@ def main(in_dataset_folder, in_model_folder):
     vocab, _ = make_vocabulary(trainset['utterance'].values, MAX_VOCABULARY_SIZE)
     char_vocab = make_char_vocabulary()
     label_vocab, _ = make_vocabulary(trainset['tags'].values, MAX_VOCABULARY_SIZE, special_tokens=[])
-    label_vocab = {key: idx for idx, key in enumerate(filter(lambda x: x.startswith('<rm-4'), label_vocab.keys()))}
+    # label_vocab = {key: idx for idx, key in enumerate(filter(lambda x: x.startswith('<rm-4'), label_vocab.keys()))}
     X_train, y_train = make_dataset(trainset, vocab, char_vocab, label_vocab)
     X_dev, y_dev = make_dataset(devset, vocab, char_vocab, label_vocab)
     X_test, y_test = make_dataset(testset, vocab, char_vocab, label_vocab)

@@ -118,7 +118,6 @@ def train(in_model,
 
     X, y, logits = in_model
 
-    y = tf.placeholder("float", [None, 3])
     # Define loss and optimizer
     loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
@@ -142,14 +141,20 @@ def train(in_model,
             step += 1
             # Run optimization op (backprop)
             sess.run(train_op, feed_dict={X: batch_x[0], y: batch_y})
-            if step % 1000 == 0:
+            if step % 100 == 0:
                 # Calculate batch loss and accuracy
-                y_true, y_pred, loss, acc = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
-                                                      feed_dict={X: X_dev[0], y: y_dev})
+                y_true_train, y_pred_train, loss_train, acc_train = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
+                                                                             feed_dict={X: X_train[0], y: y_train})
                 print "Step " + str(step) + \
-                      ", Dev set Loss= {:.4f}".format(loss) + \
-                      ", Dev acc= {:.3f}".format(acc) + \
-                      ", Dev F1= {:.3f}".format(sk.metrics.f1_score(y_true, y_pred))
+                      ", train loss= {:.4f}".format(loss_train) + \
+                      ", train acc= {:.3f}".format(acc_train) + \
+                      ", train F1= {:.3f}".format(sk.metrics.f1_score(y_true_train, y_pred_train, average='macro'))
+                y_true_dev, y_pred_dev, loss_dev, acc_dev = sess.run([y_true_op, y_pred_op, loss_op, accuracy],
+                                                                     feed_dict={X: X_dev[0], y: y_dev})
+                print "Step " + str(step) + \
+                      ", dev set Loss= {:.4f}".format(loss_dev) + \
+                      ", dev acc= {:.3f}".format(acc_dev) + \
+                      ", dev F1= {:.3f}".format(sk.metrics.f1_score(y_true_dev, y_pred_dev, average='macro'))
         print "Optimization Finished!"
 
 
@@ -185,8 +190,8 @@ def create_model(in_vocab_size,
                  in_cell_size,
                  in_max_input_length,
                  in_classes_number):
-    X = tf.placeholder(tf.int16, [None, in_max_input_length])
-    y = tf.placeholder(tf.int16, [None, in_classes_number])
+    X = tf.placeholder(tf.int32, [None, in_max_input_length])
+    y = tf.placeholder(tf.int32, [None, in_classes_number])
     embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))
     emb = tf.nn.embedding_lookup(embeddings, X)
 
