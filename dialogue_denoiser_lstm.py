@@ -148,7 +148,9 @@ def train(in_model,
     init = tf.global_variables_initializer()
     # Start training
     with tf.Session() as sess:
-        sample_weights = get_sample_weight(y_train, get_sqrt_class_weight(y_train))
+        y_train_flattened = np.argmax(y_train, -1)
+        sample_weights = get_sample_weight(y_train_flattened,
+                                           get_sqrt_class_weight(y_train_flattened))
         sample_probs = sample_weights / np.sum(sample_weights)
         batch_gen = random_batch_generator(X_train,
                                            y_train,
@@ -162,7 +164,7 @@ def train(in_model,
             step += 1
             # Run optimization op (backprop)
             sess.run(train_op, feed_dict={X: batch_x, y: batch_y})
-            if step % 100 == 0:
+            if step % steps_per_epoch == 0:
                 print 'Step {} eval'.format(step) 
                 # train_eval = evaluate(in_model, train_data, sess)
                 # print '; '.join(['train {}: {:.3f}'.format(key, value)

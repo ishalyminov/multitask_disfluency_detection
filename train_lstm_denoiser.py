@@ -45,8 +45,8 @@ def main(in_dataset_folder, in_model_folder):
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
-          learning_rate=0.01,
-          batch_size=8,
+          learning_rate=0.1,
+          batch_size=32,
           epochs=100,
           steps_per_epoch=1000)
 
