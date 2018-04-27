@@ -42,7 +42,7 @@ def main(in_dataset_folder, in_model_folder):
           (X_train[0], y_train),
           (X_dev[0], y_dev),
           (X_test[0], y_test),
-          os.path.join(in_model_folder, MODEL_NAME),
+          os.path.join(in_model_folder, 'ckpt'),
           label_vocab,
           class_weight,
           learning_rate=0.1,

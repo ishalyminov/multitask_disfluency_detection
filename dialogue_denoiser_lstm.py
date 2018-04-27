@@ -12,8 +12,7 @@ import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 
 from data_utils import vectorize_sequences, pad_sequences
-from deep_disfluency_utils import make_tag_mapping
-from metrics import DisfluencyDetectionF1Score
+from deep_disfluency_utils import get_tag_mapping
 
 random.seed(273)
 np.random.seed(273)
@@ -37,7 +36,7 @@ def get_sample_weight(in_labels, in_class_weight_map):
     return sample_weight
 
 
-def get_sqrt_class_weight(in_labels):
+def get_class_weight_sqrt(in_labels):
     label_freqs = defaultdict(lambda: 0)
     for label in in_labels:
         label_freqs[label] += 1.0
@@ -45,7 +44,15 @@ def get_sqrt_class_weight(in_labels):
     return label_weights
 
 
-def get_class_weight(in_labels):
+def get_class_weight_proportional(in_labels):
+    label_freqs = defaultdict(lambda: 0)
+    for label in in_labels:
+        label_freqs[label] += 1.0
+    label_weights = {label: 1.0 / float(freq) for label, freq in label_freqs.iteritems()}
+    return label_weights
+
+
+def get_class_weight_auto(in_labels):
     class_weight = compute_class_weight('balanced', np.unique(in_labels), in_labels)
     class_weight_map = {class_id: weight
                         for class_id, weight in zip(np.unique(in_labels), class_weight)}
@@ -104,8 +111,7 @@ def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
     data_idx = range(labels.shape[0])
     while True:
         batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probabilities)
-        batch = (np.take(data, batch_idx, axis=0),
-                 np.take(labels, batch_idx, axis=0))
+        batch = (np.take(data, batch_idx, axis=0), np.take(labels, batch_idx, axis=0))
         yield batch
 
 
@@ -122,7 +128,7 @@ def train(in_model,
           train_data,
           dev_data,
           test_data,
-          in_checkpoint_filepath,
+          in_checkpoint_folder,
           label_vocab,
           class_weight,
           learning_rate=0.01,
@@ -131,6 +137,10 @@ def train(in_model,
           steps_per_epoch=1000,
           **kwargs):
     X_train, y_train = train_data
+    y_train_flattened = np.argmax(y_train, -1)
+    sample_weights = get_sample_weight(y_train_flattened,
+                                       get_class_weight_proportional(y_train_flattened))
+    tag_mapping = get_tag_mapping(label_vocab)
 
     X, y, logits = in_model
 
@@ -143,14 +153,11 @@ def train(in_model,
     y_pred_op = tf.argmax(logits, 1)
     y_true_op = tf.argmax(y, 1)
     correct_pred = tf.equal(y_pred_op, y_true_op)
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
     init = tf.global_variables_initializer()
+    saver = tf.train.Saver(tf.global_variables())
     # Start training
     with tf.Session() as sess:
-        y_train_flattened = np.argmax(y_train, -1)
-        sample_weights = get_sample_weight(y_train_flattened,
-                                           get_sqrt_class_weight(y_train_flattened))
         sample_probs = sample_weights / np.sum(sample_weights)
         batch_gen = random_batch_generator(X_train,
                                            y_train,
@@ -159,23 +166,24 @@ def train(in_model,
         # Run the initializer
         sess.run(init)
 
-        step = 0
+        step, best_dev_loss = 0, np.inf
         for batch_x, batch_y in batch_gen:
             step += 1
             # Run optimization op (backprop)
             sess.run(train_op, feed_dict={X: batch_x, y: batch_y})
             if step % steps_per_epoch == 0:
                 print 'Step {} eval'.format(step) 
-                # train_eval = evaluate(in_model, train_data, sess)
-                # print '; '.join(['train {}: {:.3f}'.format(key, value)
-                #                  for key, value in train_eval.iteritems()])
-                dev_eval = evaluate(in_model, dev_data, sess)
+
+                dev_eval = evaluate(in_model, dev_data, tag_mapping, sess)
                 print '; '.join(['dev {}: {:.3f}'.format(key, value)
                                  for key, value in dev_eval.iteritems()])
+                if dev_eval['loss'] < best_dev_loss:
+                    best_dev_loss = dev_eval['loss']
+                    saver.save(sess, in_checkpoint_folder)
     print "Optimization Finished!"
 
 
-def evaluate(in_model, in_dataset, in_session, batch_size=32):
+def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
     X_test, y_test = in_dataset
     X, y, logits = in_model
 
@@ -198,9 +206,13 @@ def evaluate(in_model, in_dataset, in_session, batch_size=32):
         batch_losses.append(loss_batch)
         batch_accuracies.append(acc_batch)
 
-    return {'f1': sk.metrics.f1_score(np.argmax(y_test, 1), y_pred, average='macro'),
-            'loss': np.mean(batch_losses),
-            'acc': np.mean(batch_accuracies)}
+    result_matrix = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
+    for class_name, class_ids in in_tag_map.iteritems():
+        result_matrix['f1_' + class_name] = sk.metrics.f1_score(y_true=y_test,
+                                                                y_pred=y_pred,
+                                                                labels=class_ids,
+                                                                average='micro')
+        return result_matrix
 
 
 def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
