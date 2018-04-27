@@ -1,7 +1,7 @@
 import json
 import random
 import os
-from collections import deque
+from collections import deque, defaultdict
 
 import keras
 import sklearn as sk
@@ -11,7 +11,7 @@ from tensorflow.contrib import rnn
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 
-from data_utils import vectorize_sequences, pad_sequences, PAD_ID
+from data_utils import vectorize_sequences, pad_sequences
 from deep_disfluency_utils import make_tag_mapping
 from metrics import DisfluencyDetectionF1Score
 
@@ -35,6 +35,14 @@ LABEL_VOCABULARY_NAME = 'label_vocab.json'
 def get_sample_weight(in_labels, in_class_weight_map):
     sample_weight = np.vectorize(in_class_weight_map.get)(in_labels)
     return sample_weight
+
+
+def get_sqrt_class_weight(in_labels):
+    label_freqs = defaultdict(lambda: 0)
+    for label in in_labels:
+        label_freqs[label] += 1.0
+    label_weights = {label: 1.0 / np.sqrt(freq) for label, freq in label_freqs.iteritems()}
+    return label_weights
 
 
 def get_class_weight(in_labels):
@@ -123,8 +131,6 @@ def train(in_model,
           steps_per_epoch=1000,
           **kwargs):
     X_train, y_train = train_data
-    X_dev, y_dev = dev_data
-    X_test, y_test = test_data
 
     X, y, logits = in_model
 
@@ -142,7 +148,12 @@ def train(in_model,
     init = tf.global_variables_initializer()
     # Start training
     with tf.Session() as sess:
-        batch_gen = random_batch_generator(X_train, y_train, batch_size)
+        sample_weights = get_sample_weight(y_train, get_sqrt_class_weight(y_train))
+        sample_probs = sample_weights / np.sum(sample_weights)
+        batch_gen = random_batch_generator(X_train,
+                                           y_train,
+                                           batch_size,
+                                           sample_probabilities=sample_probs)
         # Run the initializer
         sess.run(init)
 
@@ -162,12 +173,8 @@ def train(in_model,
     print "Optimization Finished!"
 
 
-def evaluate(in_model,
-             in_dataset,
-             in_session,
-             batch_size=32):
+def evaluate(in_model, in_dataset, in_session, batch_size=32):
     X_test, y_test = in_dataset
-
     X, y, logits = in_model
 
     # Evaluate model (with test logits, for dropout to be disabled)
@@ -193,10 +200,6 @@ def evaluate(in_model,
             'loss': np.mean(batch_losses),
             'acc': np.mean(batch_accuracies)}
 
-def predict(in_model, X):
-    model_out = in_model.predict(X)
-    return np.argmax(model_out, axis=-1)
-
 
 def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
     tokens = [in_line.lower().split()]
@@ -214,10 +217,7 @@ def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab)
     return ' '.join(result_tokens)
 
 
-def create_model(in_vocab_size,
-                 in_cell_size,
-                 in_max_input_length,
-                 in_classes_number):
+def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
     X = tf.placeholder(tf.int32, [None, in_max_input_length])
     y = tf.placeholder(tf.int32, [None, in_classes_number])
     embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))

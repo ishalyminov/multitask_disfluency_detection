@@ -25,8 +25,8 @@ def make_vocabulary(in_lines, max_vocabulary_size, special_tokens=[PAD, UNK], fr
             freqdict[token] += 1
     vocab = sorted(freqdict.items(), key=itemgetter(1), reverse=True)
     vocab = filter(lambda x: frequency_threshold < x[1], vocab)
-    logging.info('{} tokens ({}% of the vocabulary) were filtered by frequency threshold'.format(len(freqdict) - len(vocab),
-                                                                                                 100.0 * len(vocab) / float(len(freqdict))))
+    logging.info('{} tokens ({}% of the vocabulary) were filtered due to the frequency threshold'
+                 .format(len(freqdict) - len(vocab), 100.0 * len(vocab) / float(len(freqdict))))
     rev_vocab = (special_tokens + map(itemgetter(0), vocab))[:max_vocabulary_size]
     vocab = {word: idx for idx, word in enumerate(rev_vocab)}
     return vocab, rev_vocab
