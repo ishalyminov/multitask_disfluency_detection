@@ -208,11 +208,11 @@ def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
 
     result_matrix = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
     for class_name, class_ids in in_tag_map.iteritems():
-        result_matrix['f1_' + class_name] = sk.metrics.f1_score(y_true=y_test,
+        result_matrix['f1_' + class_name] = sk.metrics.f1_score(y_true=np.argmax(y_test, -1),
                                                                 y_pred=y_pred,
                                                                 labels=class_ids,
                                                                 average='micro')
-        return result_matrix
+    return result_matrix
 
 
 def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):

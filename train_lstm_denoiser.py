@@ -12,7 +12,7 @@ from dialogue_denoiser_lstm import (create_model,
                                     MAX_INPUT_LENGTH,
                                     MAX_VOCABULARY_SIZE,
                                     MODEL_NAME,
-                                    get_class_weight)
+                                    get_class_weight_proportional)
 
 
 def configure_argument_parser():
@@ -34,7 +34,7 @@ def main(in_dataset_folder, in_model_folder):
     X_train, y_train = make_dataset(trainset, vocab, char_vocab, label_vocab)
     X_dev, y_dev = make_dataset(devset, vocab, char_vocab, label_vocab)
     X_test, y_test = make_dataset(testset, vocab, char_vocab, label_vocab)
-    class_weight = get_class_weight(np.argmax(y_train, axis=-1))
+    class_weight = get_class_weight_proportional(np.argmax(y_train, axis=-1))
     save(None, vocab, char_vocab, label_vocab, in_model_folder, save_model=False)
 
     model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
@@ -45,7 +45,7 @@ def main(in_dataset_folder, in_model_folder):
           os.path.join(in_model_folder, 'ckpt'),
           label_vocab,
           class_weight,
-          learning_rate=0.1,
+          learning_rate=0.01,
           batch_size=32,
           epochs=100,
           steps_per_epoch=1000)
