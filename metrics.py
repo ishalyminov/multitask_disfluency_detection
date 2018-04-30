@@ -15,15 +15,10 @@ class DisfluencyDetectionF1Score(Callback):
     def on_epoch_end(self, epoch, logs={}):
         y_pred = np.argmax(self.model.predict(self.validation_data[:1]), axis=-1)
         y_true = np.argmax(self.validation_data[1], axis=-1)
-        y_pred_flat, y_true_flat = [], []
-        for y_pred_i, y_true_i in zip(y_pred.flatten(), y_true.flatten()):
-            if y_true_i != 0:
-                y_pred_flat.append(y_pred_i)
-                y_true_flat.append(y_true_i)
         val_f1_map = {}
         for name, tags in self.tag_clusters.iteritems():
-            val_f1 = zero_padded_f1(y_true_flat,
-                                    y_pred_flat,
+            val_f1 = zero_padded_f1(y_true,
+                                    y_pred,
                                     labels=tags)
             val_f1_map[name] = val_f1
         self.val_f1s.append(val_f1_map)
