@@ -14,13 +14,17 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
 
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
-from deep_disfluency.feature_extraction.feature_utils import load_data_from_disfluency_corpus_file
+from deep_disfluency.feature_extraction.feature_utils import (load_data_from_disfluency_corpus_file,
+                                                              convert_from_inc_disfluency_tags_to_eval_tags)
 
 
 def deep_disfluency_dataset_to_data_frame(in_dataset):
+    eval_tags = [convert_from_inc_disfluency_tags_to_eval_tags(tags, tokens, representation='disf1')
+                 for tags, tokens in zip(in_dataset[4], in_dataset[2])]
     return pd.DataFrame({'utterance': in_dataset[2],
                          'pos': in_dataset[3],
-                         'tags': in_dataset[4]})
+                         'tags': in_dataset[4],
+                         'eval_tags': eval_tags})
 
 
 def get_unique_elements(in_list):
@@ -32,7 +36,7 @@ def get_unique_elements(in_list):
 
 def main(in_result_folder):
     train = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_train_1_data.csv'),
-                                                  representation='disf2',
+                                                  representation='disf1',
                                                   limit=8,
                                                   convert_to_dnn_format=True)
     dev = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_heldout_data.csv'),
@@ -40,7 +44,7 @@ def main(in_result_folder):
                                                 limit=8,
                                                 convert_to_dnn_format=True)
     test = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_test_data.csv'),
-                                                 representation='disf3',
+                                                 representation='disf1',
                                                  limit=8,
                                                  convert_to_dnn_format=True)
     print 'Trainset size: {} utterances'.format(len(train[0]))
@@ -48,8 +52,7 @@ def main(in_result_folder):
     print 'Testset size: {} utterances'.format(len(test[0]))
     unique_train_tags = get_unique_elements(train[4])
     print 'Unique #tags in trainset: {}'.format(len(unique_train_tags))
-    unique_dev_tags = get_unique_elements(dev[4])
-    unique_test_tags = get_unique_elements(test[4])
+
     if not os.path.exists(in_result_folder):
         os.makedirs(in_result_folder)
     (deep_disfluency_dataset_to_data_frame(train)).to_json(os.path.join(in_result_folder, 'trainset.json'))

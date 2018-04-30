@@ -12,6 +12,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 
 from data_utils import vectorize_sequences, pad_sequences
+from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
 from deep_disfluency_utils import get_tag_mapping
 
 random.seed(273)
@@ -29,6 +30,7 @@ MODEL_NAME = 'ckpt'
 VOCABULARY_NAME = 'vocab.json'
 CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
+EVAL_LABEL_VOCABULARY_NAME = 'eval_label_vocab.json'
 
 
 def get_sample_weight(in_labels, in_class_weight_map):
@@ -74,7 +76,7 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
         current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
-        for context, tag in zip(current_contexts, current_tags):
+        for context, tag, eval_tag in zip(current_contexts, current_tags, eval_tag):
             if tag in in_label_vocab:
                 contexts.append(context)
                 tags.append(tag)
@@ -83,20 +85,11 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
     tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
 
-    chars_vectorized = []
-    for utterance_tokenized in contexts:
-        char_contexts = [' '.join(utterance_tokenized[max(i - CNN_CONTEXT_LENGTH + 1, 0): i + 1])
-                         for i in xrange(len(utterance_tokenized))]
-        char_contexts_vectorized = vectorize_sequences(char_contexts, in_char_vocab)
-        char_contexts_padded = pad_sequences(char_contexts_vectorized, MAX_CHAR_INPUT_LENGTH)
-        chars_vectorized += [char_contexts_padded]
-
-    chars_padded = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
     labels = vectorize_sequences([tags], in_label_vocab)
 
     y = keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab))
  
-    return [tokens_padded, chars_padded], y
+    return tokens_padded, y
 
 
 def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
@@ -206,13 +199,50 @@ def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
         batch_losses.append(loss_batch)
         batch_accuracies.append(acc_batch)
 
-    result_matrix = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
+    result_map = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
     for class_name, class_ids in in_tag_map.iteritems():
-        result_matrix['f1_' + class_name] = sk.metrics.f1_score(y_true=np.argmax(y_test, -1),
-                                                                y_pred=y_pred,
-                                                                labels=class_ids,
-                                                                average='micro')
-    return result_matrix
+        result_map['f1_' + class_name] = sk.metrics.f1_score(y_true=np.argmax(y_test, -1),
+                                                             y_pred=y_pred,
+                                                             labels=class_ids,
+                                                             average='micro')
+    return y_pred, result_map
+
+
+def evaluate_deep_disfluency(in_model,
+                             in_dataset,
+                             in_eval_label_vocab,
+                             in_rev_label_vocab,
+                             in_original_utterances,
+                             in_original_tags,
+                             in_session,
+                             batch_size=32):
+    # RNN label IDs
+    predictions, result_map = evaluate(in_model, in_dataset, in_rev_label_vocab, in_session)
+    predictions_rnn_tags = map(in_rev_label_vocab.get, predictions)
+
+    predictions_eval_tags = []
+    original_eval_tags = []
+    tag_idx = 0
+    for utterance, original_tags in zip(in_original_utterances, in_original_tags):
+        utterance_tags = predictions_rnn_tags[tag_idx: tag_idx + len(utterance)]
+        utterance_eval_tags = convert_from_inc_disfluency_tags_to_eval_tags(utterance_tags, utterance)
+        predictions_eval_tags += utterance_eval_tags
+        original_eval_tags += original_tags
+    gold_eval_ids = map(in_eval_label_vocab.get, original_eval_tags)
+    pred_eval_ids = map(in_eval_label_vocab.get, predictions_eval_tags)
+
+    tag_mapping = get_tag_mapping(in_eval_label_vocab)
+
+    result = {'loss': result_map['loss'], 'acc': result_map['acc']}
+    for class_name, class_ids in tag_mapping.iteritems():
+        result['f1_' + class_name] = sk.metrics.f1_score(y_true=gold_eval_ids,
+                                                         y_pred=pred_eval_ids,
+                                                         labels=class_ids,
+                                                         average='micro')
+    return result
+
+
+
 
 
 def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):
@@ -269,20 +299,22 @@ def load(in_model_folder, in_session):
         char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
+    with open(os.path.join(in_model_folder, EVAL_LABEL_VOCABULARY_NAME)) as eval_label_vocab_in:
+        eval_label_vocab = json.load(eval_label_vocab_in)
     model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
     loader = tf.train.Saver()
     loader.restore(in_session, os.path.join(in_model_folder, MODEL_NAME))
-    return model, vocab, char_vocab, label_vocab
+    return model, vocab, char_vocab, label_vocab, eval_label_vocab
 
 
-def save(in_model, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, save_model=False):
+def save(in_vocab, in_char_vocab, in_label_vocab, in_eval_label_vocab, in_model_folder):
     if not os.path.exists(in_model_folder):
         os.makedirs(in_model_folder)
-    if save_model:
-        in_model.save(os.path.join(in_model_folder, MODEL_NAME))
     with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
         json.dump(in_vocab, vocab_out)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME), 'w') as char_vocab_out:
         json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
+    with open(os.path.join(in_model_folder, EVAL_LABEL_VOCABULARY_NAME), 'w') as eval_label_vocab_out:
+        json.dump(in_eval_label_vocab, eval_label_vocab_out)
