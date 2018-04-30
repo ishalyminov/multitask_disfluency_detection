@@ -7,8 +7,8 @@ import keras
 import sklearn as sk
 import tensorflow as tf
 from tensorflow.contrib import rnn
-
 import numpy as np
+import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 
 from data_utils import vectorize_sequences, pad_sequences
@@ -25,7 +25,7 @@ MEAN_WORD_LENGTH = 8
 CNN_CONTEXT_LENGTH = 3
 MAX_CHAR_INPUT_LENGTH = CNN_CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
 
-MODEL_NAME = 'model.h5'
+MODEL_NAME = 'ckpt'
 VOCABULARY_NAME = 'vocab.json'
 CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
@@ -215,19 +215,34 @@ def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
     return result_matrix
 
 
-def denoise_line(in_line, in_model, in_vocab, in_char_vocab, in_rev_label_vocab):
-    tokens = [in_line.lower().split()]
-    tokens_vectorized = vectorize_sequences(tokens, in_vocab)
-    chars_vectorized = []
-    for utterance_tokenized in tokens:
-        contexts = [' '.join(utterance_tokenized[max(i - CONTEXT_LENGTH + 1, 0): i + 1])
-                    for i in xrange(len(utterance_tokenized))]
-        contexts_vectorized = vectorize_sequences(contexts, in_char_vocab)
-        chars_vectorized += [contexts_vectorized]
-    chars_vectorized = pad_sequences(chars_vectorized, MAX_INPUT_LENGTH)
+def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):
+    X_test, y_test = in_dataset
+    X, y, logits = in_model
 
-    predicted = predict(in_model, tokens_vectorized)[0]
-    result_tokens = map(lambda x: in_rev_label_vocab[x], predicted[:len(tokens[0])])
+    y_pred_op = tf.argmax(logits, 1)
+
+    # Start training
+    batch_gen = batch_generator(X_test, y_test, batch_size)
+
+    y_pred = np.zeros(y_test.shape[0])
+    for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
+        y_pred_batch = in_session.run([y_pred_op],
+                                       feed_dict={X: batch_x})
+        y_pred[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
+
+    predictions = map(in_rev_label_vocab.get, y_pred) 
+    return predictions
+
+
+def filter_line(in_line, in_model, in_vocab, in_char_vocab, in_label_vocab, in_rev_label_vocab, in_session):
+    tokens = in_line.lower().split()
+    dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
+    X_line, y_line = make_dataset(dataset, in_vocab, in_char_vocab, in_label_vocab)
+    X, y, logits = in_model
+    y_pred_op = tf.argmax(logits, 1)
+    y_pred  = in_session.run([y_pred_op],
+                             feed_dict={X: X_line[0]})
+    result_tokens = map(in_rev_label_vocab.get, y_pred[0])
     return ' '.join(result_tokens)
 
 
@@ -247,14 +262,16 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
     return X, y, tf.add(tf.matmul(outputs[:,-1,:], W), b)
 
 
-def load(in_model_folder):
+def load(in_model_folder, in_session):
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
         char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
-    model = keras.models.load_model(os.path.join(in_model_folder, MODEL_NAME))
+    model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
+    loader = tf.train.Saver()
+    loader.restore(in_session, os.path.join(in_model_folder, MODEL_NAME))
     return model, vocab, char_vocab, label_vocab
 
 

@@ -1,8 +1,10 @@
 from argparse import ArgumentParser
 
+import tensorflow as tf
 import pandas as pd
 
 from dialogue_denoiser_lstm import make_dataset, load, evaluate
+from deep_disfluency_utils import get_tag_mapping
 
 
 def configure_argument_parser():
@@ -14,13 +16,14 @@ def configure_argument_parser():
 
 
 def main(in_dataset, in_model_folder):
-    lines_from, lines_to = in_dataset['utterance'], in_dataset['tags']
-    data_points = [(tokens, tags) for tokens, tags in zip(lines_from, lines_to)] 
-    model, vocab, char_vocab, label_vocab = load(in_model_folder)
-    X, y = make_dataset(data_points, vocab, char_vocab, label_vocab)
+    with tf.Session() as sess:
+        model, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
+        X_test, y_test = make_dataset(in_dataset, vocab, char_vocab, label_vocab)
 
-    print 'Accuracy: {:.3f}'.format(evaluate(model, X, y))
-
+        tag_map = get_tag_mapping(label_vocab)
+        eval_map = evaluate(model, (X_test[0], y_test), tag_map, sess)
+        print 'Evaluation results:'
+        print ' '.join(['{}: {:.3f}'.format(key, value) for key, value in eval_map.iteritems()])
 
 if __name__ == '__main__':
     parser = configure_argument_parser()
