@@ -160,7 +160,8 @@ def train(in_model,
     class_weight = get_class_weight_proportional(y_train_flattened)
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
     class_probs = map(itemgetter(1),
-                      sorted(class_weight.items(), key=itemgetter(0))) / np.sum(class_weight)
+                      sorted(class_weight.items(), key=itemgetter(0))) / np.sum(class_weight.values())
+    assert abs(sum(class_probs) - 1.0) < 1e-7
 
     tag_mapping = get_tag_mapping(label_vocab)
 
