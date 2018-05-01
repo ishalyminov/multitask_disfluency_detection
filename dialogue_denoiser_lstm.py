@@ -25,7 +25,7 @@ tf.set_random_seed(273)
 
 MAX_VOCABULARY_SIZE = 15000
 # we have dependencies up to 8 tokens back, so this should do
-MAX_INPUT_LENGTH = 20 
+MAX_INPUT_LENGTH = 5
 MEAN_WORD_LENGTH = 8
 CNN_CONTEXT_LENGTH = 3
 MAX_CHAR_INPUT_LENGTH = CNN_CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
@@ -76,7 +76,7 @@ def make_data_points(in_tokens, in_tags):
     return contexts, tags
 
 
-def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
+def make_dataset(in_dataset, in_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
         current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
@@ -121,6 +121,27 @@ def batch_generator(X, y, batch_size):
         yield batch
 
 
+def get_loss_function(in_logits, in_labels, in_class_weights, l2_coef=0.01):
+    flat_logits = tf.reshape(in_logits, [-1, len(in_class_weights)])
+    flat_labels = tf.reshape(in_labels, [-1, len(in_class_weights)])
+
+    eps = tf.constant(value=np.finfo(np.float32).eps)
+
+    flat_logits = flat_logits + eps
+
+    softmax = tf.nn.softmax(flat_logits)
+
+    loss_xent = -tf.reduce_sum(tf.multiply(flat_labels * tf.log(softmax + eps), in_class_weights),
+                               reduction_indices=[1])
+
+    # Add regularization loss as well
+    loss_l2 = tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()]) * l2_coef
+
+    cost = tf.reduce_mean(tf.add(loss_xent, loss_l2), name='cost')
+
+    return cost
+
+
 def train(in_model,
           train_data,
           dev_data,
@@ -135,21 +156,23 @@ def train(in_model,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, -1)
-    sample_weights = get_sample_weight(y_train_flattened,
-                                       get_class_weight_proportional(y_train_flattened))
+    class_weight = get_class_weight_proportional(y_train_flattened)
+    sample_weights = get_sample_weight(y_train_flattened, class_weight)
+    class_probs = class_weight / np.sum(class_weight)
+
     tag_mapping = get_tag_mapping(label_vocab)
 
     X, y, logits = in_model
 
     # Define loss and optimizer
-    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
+    loss_op = get_loss_function(logits, y_train, class_probs)
+
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(loss_op)
 
     # Evaluate model (with test logits, for dropout to be disabled)
     y_pred_op = tf.argmax(logits, 1)
     y_true_op = tf.argmax(y, 1)
-    correct_pred = tf.equal(y_pred_op, y_true_op)
 
     init = tf.global_variables_initializer()
     saver = tf.train.Saver(tf.global_variables())
@@ -231,7 +254,7 @@ def evaluate_deep_disfluency(in_model,
     eval_pred_tags = []
     eval_gold_tags = []
     tag_idx = 0
-    import pdb; pdb.set_trace()
+
     for original_utterance, rnn_gold_tags_current in zip(in_original_utterances, in_rnn_gold_tags):
         rnn_pred_tags_current = rnn_pred_tags[tag_idx: tag_idx + len(original_utterance)]
         eval_pred_tags_current = convert_from_inc_disfluency_tags_to_eval_tags(rnn_pred_tags_current,
@@ -253,9 +276,6 @@ def evaluate_deep_disfluency(in_model,
                                                          labels=class_ids,
                                                          average='micro')
     return result
-
-
-
 
 
 def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):

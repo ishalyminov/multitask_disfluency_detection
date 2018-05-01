@@ -18,7 +18,7 @@ def configure_argument_parser():
 def main(in_dataset, in_model_folder):
     with tf.Session() as sess:
         model, vocab, char_vocab, label_vocab, eval_label_vocab = load(in_model_folder, sess)
-        X_test, y_test = make_dataset(in_dataset, vocab, char_vocab, label_vocab)
+        X_test, y_test = make_dataset(in_dataset, vocab, label_vocab)
 
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}

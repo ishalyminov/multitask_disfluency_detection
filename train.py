@@ -36,18 +36,18 @@ def main(in_dataset_folder, in_model_folder):
                                           MAX_VOCABULARY_SIZE,
                                           special_tokens=[])
     # label_vocab = {key: idx for idx, key in enumerate(filter(lambda x: x.startswith('<rm-4'), label_vocab.keys()))}
-    X_train, y_train = make_dataset(trainset, vocab, char_vocab, label_vocab)
-    X_dev, y_dev = make_dataset(devset, vocab, char_vocab, label_vocab)
-    X_test, y_test = make_dataset(testset, vocab, char_vocab, label_vocab)
+    X_train, y_train = make_dataset(trainset, vocab, label_vocab)
+    X_dev, y_dev = make_dataset(devset, vocab, label_vocab)
+    X_test, y_test = make_dataset(testset, vocab, label_vocab)
     class_weight = get_class_weight_proportional(np.argmax(y_train, axis=-1))
-    import pdb; pdb.set_trace()
+
     save(vocab, char_vocab, label_vocab, eval_label_vocab, in_model_folder)
 
     model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
     train(model,
-          (X_train[0], y_train),
-          (X_dev[0], y_dev),
-          (X_test[0], y_test),
+          (X_train, y_train),
+          (X_dev, y_dev),
+          (X_test, y_test),
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
