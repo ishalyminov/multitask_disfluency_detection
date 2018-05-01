@@ -3,6 +3,7 @@ import random
 import os
 from collections import deque, defaultdict
 import sys
+from operator import itemgetter
 
 import keras
 import sklearn as sk
@@ -158,7 +159,8 @@ def train(in_model,
     y_train_flattened = np.argmax(y_train, -1)
     class_weight = get_class_weight_proportional(y_train_flattened)
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
-    class_probs = class_weight / np.sum(class_weight)
+    class_probs = map(itemgetter(1),
+                      sorted(class_weight.items(), key=itemgetter(0))) / np.sum(class_weight)
 
     tag_mapping = get_tag_mapping(label_vocab)
 
