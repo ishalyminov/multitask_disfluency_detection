@@ -3,7 +3,8 @@ from argparse import ArgumentParser
 import tensorflow as tf
 import pandas as pd
 
-from dialogue_denoiser_lstm import make_dataset, load, evaluate_deep_disfluency
+from dialogue_denoiser_lstm import make_dataset, load, evaluate
+from deep_disfluency_utils import get_tag_mapping
 
 
 def configure_argument_parser():
@@ -21,13 +22,10 @@ def main(in_dataset, in_model_folder):
 
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-        eval_map = evaluate_deep_disfluency(model,
-                                            (X_test, y_test),
-                                             eval_label_vocab,
-                                             rev_label_vocab,
-                                             in_dataset['utterance'].values,
-                                             in_dataset['tags_eval'].values,
-                                             sess)
+        _, eval_map = evaluate(model,
+                               (X_test, y_test),
+                               get_tag_mapping(label_vocab),
+                               sess)
         print 'Evaluation results:'
         print ' '.join(['{}: {:.3f}'.format(key, value) for key, value in eval_map.iteritems()])
 

@@ -40,6 +40,7 @@ def main(in_dataset_folder, in_model_folder):
     X_dev, y_dev = make_dataset(devset, vocab, char_vocab, label_vocab)
     X_test, y_test = make_dataset(testset, vocab, char_vocab, label_vocab)
     class_weight = get_class_weight_proportional(np.argmax(y_train, axis=-1))
+    import pdb; pdb.set_trace()
     save(vocab, char_vocab, label_vocab, eval_label_vocab, in_model_folder)
 
     model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))

@@ -2,6 +2,7 @@ import json
 import random
 import os
 from collections import deque, defaultdict
+import sys
 
 import keras
 import sklearn as sk
@@ -10,6 +11,9 @@ from tensorflow.contrib import rnn
 import numpy as np
 import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
+
+THIS_FILE_DIR = os.path.dirname(__file__)
+sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
 from data_utils import vectorize_sequences, pad_sequences
 from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
@@ -76,7 +80,7 @@ def make_dataset(in_dataset, in_vocab, in_char_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
         current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
-        for context, tag, eval_tag in zip(current_contexts, current_tags, eval_tag):
+        for context, tag in zip(current_contexts, current_tags):
             if tag in in_label_vocab:
                 contexts.append(context)
                 tags.append(tag)
@@ -210,33 +214,42 @@ def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
 
 def evaluate_deep_disfluency(in_model,
                              in_dataset,
+                             in_label_vocab,
                              in_eval_label_vocab,
                              in_rev_label_vocab,
                              in_original_utterances,
-                             in_original_tags,
+                             in_rnn_gold_tags,
                              in_session,
                              batch_size=32):
     # RNN label IDs
-    predictions, result_map = evaluate(in_model, in_dataset, in_rev_label_vocab, in_session)
-    predictions_rnn_tags = map(in_rev_label_vocab.get, predictions)
+    rnn_pred_ids, rnn_result_map = evaluate(in_model,
+                                            in_dataset,
+                                            get_tag_mapping(in_label_vocab),
+                                            in_session)
+    rnn_pred_tags = map(in_rev_label_vocab.get, rnn_pred_ids)
 
-    predictions_eval_tags = []
-    original_eval_tags = []
+    eval_pred_tags = []
+    eval_gold_tags = []
     tag_idx = 0
-    for utterance, original_tags in zip(in_original_utterances, in_original_tags):
-        utterance_tags = predictions_rnn_tags[tag_idx: tag_idx + len(utterance)]
-        utterance_eval_tags = convert_from_inc_disfluency_tags_to_eval_tags(utterance_tags, utterance)
-        predictions_eval_tags += utterance_eval_tags
-        original_eval_tags += original_tags
-    gold_eval_ids = map(in_eval_label_vocab.get, original_eval_tags)
-    pred_eval_ids = map(in_eval_label_vocab.get, predictions_eval_tags)
+    import pdb; pdb.set_trace()
+    for original_utterance, rnn_gold_tags_current in zip(in_original_utterances, in_rnn_gold_tags):
+        rnn_pred_tags_current = rnn_pred_tags[tag_idx: tag_idx + len(original_utterance)]
+        eval_pred_tags_current = convert_from_inc_disfluency_tags_to_eval_tags(rnn_pred_tags_current,
+                                                                               original_utterance,
+                                                                               representation='disf1')
+        eval_pred_tags += eval_pred_tags_current
+        eval_gold_tags += convert_from_inc_disfluency_tags_to_eval_tags(rnn_gold_tags_current,
+                                                                        original_utterance,
+                                                                        representation='disf1') 
+    eval_gold_ids = map(in_eval_label_vocab.get, eval_gold_tags)
+    eval_pred_ids = map(in_eval_label_vocab.get, eval_pred_tags)
 
     tag_mapping = get_tag_mapping(in_eval_label_vocab)
 
-    result = {'loss': result_map['loss'], 'acc': result_map['acc']}
+    result = {'loss': rnn_result_map['loss'], 'acc': rnn_result_map['acc']}
     for class_name, class_ids in tag_mapping.iteritems():
-        result['f1_' + class_name] = sk.metrics.f1_score(y_true=gold_eval_ids,
-                                                         y_pred=pred_eval_ids,
+        result['f1_' + class_name] = sk.metrics.f1_score(y_true=eval_gold_ids,
+                                                         y_pred=eval_pred_ids,
                                                          labels=class_ids,
                                                          average='micro')
     return result

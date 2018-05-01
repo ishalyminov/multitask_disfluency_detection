@@ -14,8 +14,8 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
 
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
-from deep_disfluency.feature_extraction.feature_utils import (load_data_from_disfluency_corpus_file,
-                                                              convert_from_inc_disfluency_tags_to_eval_tags)
+from deep_disfluency.feature_extraction.feature_utils import load_data_from_disfluency_corpus_file
+from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
 
 
 def deep_disfluency_dataset_to_data_frame(in_dataset):
