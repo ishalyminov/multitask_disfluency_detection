@@ -4,6 +4,8 @@ import os
 import numpy as np
 import pandas as pd
 
+import tensorflow as tf
+
 from data_utils import make_vocabulary, make_char_vocabulary
 from dialogue_denoiser_lstm import (create_model,
                                     train,

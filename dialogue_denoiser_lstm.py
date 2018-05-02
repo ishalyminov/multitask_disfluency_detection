@@ -12,6 +12,7 @@ from tensorflow.contrib import rnn
 import numpy as np
 import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
+from sklearn.preprocessing import MinMaxScaler
 
 THIS_FILE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
@@ -47,7 +48,7 @@ def get_class_weight_sqrt(in_labels):
     label_freqs = defaultdict(lambda: 0)
     for label in in_labels:
         label_freqs[label] += 1.0
-    label_weights = {label: 1.0 / np.sqrt(freq) for label, freq in label_freqs.iteritems()}
+    label_weights = {label: 1.0 / np.power(freq, 1 / 3.) for label, freq in label_freqs.iteritems()}
     return label_weights
 
 
@@ -122,19 +123,16 @@ def batch_generator(X, y, batch_size):
         yield batch
 
 
-def get_loss_function(in_logits, in_labels, in_class_weights, l2_coef=0.01):
-    flat_logits = tf.reshape(in_logits, [-1, len(in_class_weights)])
-    flat_labels = tf.reshape(in_labels, [-1, len(in_class_weights)])
+def get_loss_function(in_logits, in_labels, in_class_weights, l2_coef=0.00):
+    eps = tf.constant(value=np.finfo(np.float32).eps, dtype=tf.float32)
+    class_weights = tf.constant(value=in_class_weights, dtype=tf.float32)
 
-    eps = tf.constant(value=np.finfo(np.float32).eps)
+    logits = in_logits + eps
+    softmax = tf.nn.softmax(logits)
 
-    flat_logits = flat_logits + eps
-
-    softmax = tf.nn.softmax(flat_logits)
-
-    loss_xent = -tf.reduce_sum(tf.multiply(flat_labels * tf.log(softmax + eps), in_class_weights),
+    loss_xent = -tf.reduce_sum(tf.multiply(in_labels * tf.log(softmax + eps), class_weights),
                                reduction_indices=[1])
-
+    # loss_xent = tf.nn.softmax_cross_entropy_with_logits_v2(labels=in_labels, logits=in_logits)
     # Add regularization loss as well
     loss_l2 = tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()]) * l2_coef
 
@@ -159,16 +157,16 @@ def train(in_model,
     y_train_flattened = np.argmax(y_train, -1)
     class_weight = get_class_weight_proportional(y_train_flattened)
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
-    class_probs = map(itemgetter(1),
-                      sorted(class_weight.items(), key=itemgetter(0))) / np.sum(class_weight.values())
-    assert abs(sum(class_probs) - 1.0) < 1e-7
 
+    scaler = MinMaxScaler(feature_range=(1, 2)) 
+    class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
+    # class_weight_vector = np.ones(y_train.shape[-1])
     tag_mapping = get_tag_mapping(label_vocab)
 
     X, y, logits = in_model
 
     # Define loss and optimizer
-    loss_op = get_loss_function(logits, y_train, class_probs)
+    loss_op = get_loss_function(logits, y, class_weight_vector)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(loss_op)
@@ -197,7 +195,7 @@ def train(in_model,
             if step % steps_per_epoch == 0:
                 print 'Step {} eval'.format(step) 
 
-                dev_eval = evaluate(in_model, dev_data, tag_mapping, sess)
+                _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
                 print '; '.join(['dev {}: {:.3f}'.format(key, value)
                                  for key, value in dev_eval.iteritems()])
                 if dev_eval['loss'] < best_dev_loss:
@@ -206,12 +204,12 @@ def train(in_model,
     print "Optimization Finished!"
 
 
-def evaluate(in_model, in_dataset, in_tag_map, in_session, batch_size=32):
+def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_session, batch_size=32):
     X_test, y_test = in_dataset
     X, y, logits = in_model
 
     # Evaluate model (with test logits, for dropout to be disabled)
-    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y))
+    loss_op = get_loss_function(logits, y, in_class_weight)
     y_pred_op = tf.argmax(logits, 1)
     y_true_op = tf.argmax(y, 1)
     correct_pred = tf.equal(y_pred_op, y_true_op)
@@ -314,7 +312,7 @@ def filter_line(in_line, in_model, in_vocab, in_char_vocab, in_label_vocab, in_r
 
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
     X = tf.placeholder(tf.int32, [None, in_max_input_length])
-    y = tf.placeholder(tf.int32, [None, in_classes_number])
+    y = tf.placeholder(tf.float32, [None, in_classes_number])
     embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))
     emb = tf.nn.embedding_lookup(embeddings, X)
 
