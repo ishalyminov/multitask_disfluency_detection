@@ -19,6 +19,7 @@ sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
 from data_utils import vectorize_sequences, pad_sequences
 from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
+from deep_disfluency.evaluation.disf_evaluation import get_tag_data_from_corpus_file
 from deep_disfluency_utils import get_tag_mapping
 
 random.seed(273)
@@ -298,16 +299,130 @@ def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32)
     return predictions
 
 
-def filter_line(in_line, in_model, in_vocab, in_char_vocab, in_label_vocab, in_rev_label_vocab, in_session):
+def predict_increco_file(in_model,
+                         in_vocab,
+                         in_label_vocab,
+                         in_rev_label_vocab,
+                         source_file_path,
+                         in_session,
+                         target_file_path=None,
+                         is_asr_results_file=False):
+    """Return the incremental output in an increco style
+    given the incoming words + POS. E.g.:
+
+    Speaker: KB3_1
+
+    Time: 1.50
+    KB3_1:1    0.00    1.12    $unc$yes    NNP    <f/><tc/>
+
+    Time: 2.10
+    KB3_1:1    0.00    1.12    $unc$yes    NNP    <rms id="1"/><tc/>
+    KB3_1:2    1.12    2.00     because    IN    <rps id="1"/><cc/>
+
+    Time: 2.5
+    KB3_1:2    1.12    2.00     because    IN    <rps id="1"/><rpndel id="1"/><cc/>
+
+    from an ASR increco style input without the POStags:
+
+    or a normal style disfluency dectection ground truth corpus:
+
+    Speaker: KB3_1
+    KB3_1:1    0.00    1.12    $unc$yes    NNP    <rms id="1"/><tc/>
+    KB3_1:2    1.12    2.00     $because    IN    <rps id="1"/><cc/>
+    KB3_1:3    2.00    3.00    because    IN    <f/><cc/>
+    KB3_1:4    3.00    4.00    theres    EXVBZ    <f/><cc/>
+    KB3_1:6    4.00    5.00    a    DT    <f/><cc/>
+    KB3_1:7    6.00    7.10    pause    NN    <f/><cc/>
+
+
+    :param source_file_path: str, file path to the input file
+    :param target_file_path: str, file path to output in the above format
+    :param is_asr_results_file: bool, whether the input is increco style
+    """
+    if target_file_path:
+        target_file = open(target_file_path, "w")
+    if 'timings' in source_file_path:
+        print "input file has timings"
+        if not is_asr_results_file:
+            dialogues = []
+            IDs, timings, words, pos_tags, labels = \
+                get_tag_data_from_corpus_file(source_file_path)
+            for dialogue, a, b, c, d in zip(IDs,
+                                            timings,
+                                            words,
+                                            pos_tags,
+                                            labels):
+                dialogues.append((dialogue, (a, b, c, d)))
+    else:
+        print "no timings in input file, creating fake timings"
+        raise NotImplementedError
+
+    for speaker, speaker_data in dialogues:
+        if target_file_path:
+            target_file.write("Speaker: " + str(speaker) + "\n\n")
+        timing_data, lex_data, pos_data, labels = speaker_data
+        # iterate through the utterances
+        # utt_idx = -1
+        context = deque([], maxlen=MAX_INPUT_LENGTH)
+        current_time = 0
+        for i in range(0, len(timing_data)):
+            # print i, timing_data[i]
+            _, end = timing_data[i]
+            if "<t" in labels[i]:
+                context.clear()  # reset after each utt if non pre-seg
+            timing = None
+            word = lex_data[i]
+            pos = pos_data[i]
+            context.append(word)
+            predicted_tags = predict_single_tag(' '.join(context),
+                                               in_model,
+                                               in_vocab,
+                                               in_label_vocab,
+                                               in_rev_label_vocab,
+                                               in_session)
+            current_time = end
+            if target_file_path:
+                target_file.write("Time: " + str(current_time) + "\n")
+                new_words = lex_data[i-(len(predicted_tags)-1):i+1]
+                new_pos = pos_data[i-(len(predicted_tags)-1):i+1]
+                new_timings = timing_data[i-(len(predicted_tags)-1):i+1]
+                for t, w, p, tag in zip(new_timings,
+                                        new_words,
+                                        new_pos,
+                                        predicted_tags):
+                    target_file.write("\t".join([str(t[0]),
+                                                 str(t[1]),
+                                                 w,
+                                                 p,
+                                                 tag]))
+                    target_file.write("\n")
+                target_file.write("\n")
+        target_file.write("\n")
+
+
+def filter_line(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
     tokens = in_line.lower().split()
     dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
-    X_line, y_line = make_dataset(dataset, in_vocab, in_char_vocab, in_label_vocab)
+    X_line, y_line = make_dataset(dataset, in_vocab, in_label_vocab)
     X, y, logits = in_model
     y_pred_op = tf.argmax(logits, 1)
     y_pred  = in_session.run([y_pred_op],
                              feed_dict={X: X_line[0]})
     result_tokens = map(in_rev_label_vocab.get, y_pred[0])
     return ' '.join(result_tokens)
+
+
+def predict_single_tag(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
+    tokens = in_line.lower().split()
+    dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
+    X_line, y_line = make_dataset(dataset, in_vocab, in_label_vocab)
+    X_last = [X_line[-1]]
+    X, y, logits = in_model
+    y_pred_op = tf.argmax(logits, 1)
+    y_pred  = in_session.run([y_pred_op],
+                             feed_dict={X: X_last})
+    tags = map(in_rev_label_vocab.get, y_pred[0])
+    return tags
 
 
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
