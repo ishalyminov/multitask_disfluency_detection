@@ -86,12 +86,12 @@ def make_dataset(in_dataset, in_vocab, in_label_vocab):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
         current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
-        for context, tag in zip(current_contexts, current_tags):
-            if tag in in_label_vocab:
-                contexts.append(context)
-                tags.append(tag)
-        #contexts += current_contexts
-        #tags += current_tags
+        # for context, tag in zip(current_contexts, current_tags):
+        #     if tag in in_label_vocab:
+        #         contexts.append(context)
+        #         tags.append(tag)
+        contexts += current_contexts
+        tags += current_tags
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
     tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
 
@@ -386,30 +386,33 @@ def predict_increco_file(in_model,
     predictions = predict(in_model, (X, y), in_rev_label_vocab, in_session)
     predictions_eval = []
     global_word_index = 0
+    broken_sequences_number = 0
     # RNN tags --> eval tags
     for utterance in utterances:
         current_tags = predictions[global_word_index: global_word_index + len(utterance)]
-        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(
-                                                    current_tags,
-                                                    utterance,
-                                                    representation="disf1")
+        try:
+            current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(current_tags,
+                                                                              utterance,
+                                                                              representation="disf1")
+        except:
+            current_tags_eval = current_tags
+            broken_sequences_number += 1
         predictions_eval += current_tags_eval
+        global_word_index += len(utterance)
+    print '#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number, len(utterances))
 
-    global_tag_index = 0
+    predictions_eval_iter = iter(predictions_eval) 
     for speaker, speaker_data in dialogues:
         if target_file_path:
             target_file.write("Speaker: " + str(speaker) + "\n\n")
         timing_data, lex_data, pos_data, labels = speaker_data
-        # iterate through the utterances
-        # utt_idx = -1
 
         for i in range(0, len(timing_data)):
             # print i, timing_data[i]
             _, end = timing_data[i]
             word = lex_data[i]
             pos = pos_data[i]
-            predicted_tags = [predictions_eval[global_tag_index]]
-            global_tag_index += 1
+            predicted_tags = [next(predictions_eval_iter)]
             current_time = end
             if target_file_path:
                 target_file.write("Time: " + str(current_time) + "\n")
