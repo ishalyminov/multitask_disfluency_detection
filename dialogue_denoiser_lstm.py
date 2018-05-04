@@ -14,6 +14,9 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import MinMaxScaler
 
+from deep_disfluency.utils.tools import (convert_from_eval_tags_to_inc_disfluency_tags,
+                                         convert_from_inc_disfluency_tags_to_eval_tags)
+
 THIS_FILE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
@@ -373,10 +376,26 @@ def predict_increco_file(in_model,
             utterances[-1].append(lex_data[i])
             tags[-1].append(labels[i])
 
-    dataset = pd.DataFrame({'utterance': utterances, 'tags': tags})
+    # eval tags --> RNN tags
+    dataset = pd.DataFrame({'utterance': utterances,
+                            'tags': [convert_from_eval_tags_to_inc_disfluency_tags(tags_i,
+                                                                                   words_i,
+                                                                                   representation="disf1")
+                                     for tags_i, words_i in zip(tags, utterances)]})
     X, y = make_dataset(dataset, in_vocab, in_label_vocab)
     predictions = predict(in_model, (X, y), in_rev_label_vocab, in_session)
-    global_tag_counter = 0
+    predictions_eval = []
+    global_word_index = 0
+    # RNN tags --> eval tags
+    for utterance in utterances:
+        current_tags = predictions[global_word_index: global_word_index + len(utterance)]
+        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(
+                                                    current_tags,
+                                                    utterance,
+                                                    representation="disf1")
+        predictions_eval += current_tags_eval
+
+    global_tag_index = 0
 
     for speaker, speaker_data in dialogues:
         if target_file_path:
@@ -393,8 +412,8 @@ def predict_increco_file(in_model,
                 tags.append([])
             word = lex_data[i]
             pos = pos_data[i]
-            predicted_tags = [predictions[global_tag_counter]]
-            global_tag_counter += 1
+            predicted_tags = [predictions[global_tag_index]]
+            global_tag_index += 1
             current_time = end
             if target_file_path:
                 target_file.write("Time: " + str(current_time) + "\n")
