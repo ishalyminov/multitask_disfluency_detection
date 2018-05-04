@@ -1,8 +1,23 @@
 from argparse import ArgumentParser
 from copy import deepcopy
+import os
+import sys
+
+import matplotlib
+matplotlib.use('agg')
 
 import tensorflow as tf
 import pandas as pd
+
+THIS_FILE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(THIS_FILE_DIR,
+                        'deep_disfluency',
+                        'deep_disfluency',
+                        'data',
+                        'disfluency_detection',
+                        'switchboard')
+sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
+DEFAULT_HELDOUT_DATASET = DATA_DIR + '/swbd_disf_heldout_data_timings.csv'
 
 from deep_disfluency.evaluation.disf_evaluation import incremental_output_disfluency_eval_from_file
 from deep_disfluency.evaluation.disf_evaluation import final_output_disfluency_eval_from_file
@@ -11,13 +26,11 @@ from deep_disfluency.evaluation.eval_utils import rename_all_repairs_in_line_wit
 from deep_disfluency.evaluation.results_utils import convert_to_latex
 from dialogue_denoiser_lstm import load, predict_increco_file
 
-DEFAULT_HELDOUT_DATASET = 'deep_disfluency/deep_disfluency/data/disfluency_detection/switchboard/swbd_disf_heldout_data_timings.csv'
-
 
 def configure_argument_parser():
     parser = ArgumentParser(description='Evaluate the LSTM dialogue filter')
     parser.add_argument('model_folder')
-    parser.add_argument('dataset', default=DEFAULT_HELDOUT_DATASET)
+    parser.add_argument('dataset')
 
     return parser
 
@@ -81,10 +94,9 @@ def eval_deep_disfluency(in_model,
         print k, v
     all_results = deepcopy(results)
     display_results = dict()
-    display_results['RNN (window length=2) (+ POS)'] = all_results['test_021/epoch_40']
-    display_results['LSTM (window length=2) (+ POS)'] = all_results['test_041/epoch_16']
-    final = convert_to_latex(display_results, eval_level=['word'], inc=False, utt_seg=False,
+    final = convert_to_latex(all_results, eval_level=['word'], inc=False, utt_seg=False,
                              only_include=['f1_<rm_word', 'f1_<rps_word', 'f1_<e_word'])
+    print final
 
 
 def main(in_dataset_file, in_model_folder):
@@ -92,10 +104,10 @@ def main(in_dataset_file, in_model_folder):
         model, vocab, char_vocab, label_vocab, eval_label_vocab = load(in_model_folder, sess)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-
+        eval_deep_disfluency(model, vocab, label_vocab, rev_label_vocab, in_dataset_file, sess)
 
 if __name__ == '__main__':
     parser = configure_argument_parser()
     args = parser.parse_args()
 
-    main(pd.read_json(args.dataset), args.model_folder)
+    main(args.dataset, args.model_folder)
