@@ -396,7 +396,6 @@ def predict_increco_file(in_model,
         predictions_eval += current_tags_eval
 
     global_tag_index = 0
-
     for speaker, speaker_data in dialogues:
         if target_file_path:
             target_file.write("Speaker: " + str(speaker) + "\n\n")
@@ -407,12 +406,9 @@ def predict_increco_file(in_model,
         for i in range(0, len(timing_data)):
             # print i, timing_data[i]
             _, end = timing_data[i]
-            if "<t" in labels[i]:
-                utterances.append([])
-                tags.append([])
             word = lex_data[i]
             pos = pos_data[i]
-            predicted_tags = [predictions[global_tag_index]]
+            predicted_tags = [predictions_eval[global_tag_index]]
             global_tag_index += 1
             current_time = end
             if target_file_path:

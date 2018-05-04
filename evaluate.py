@@ -92,10 +92,12 @@ def eval_deep_disfluency(in_model,
     for k, v in results.items():
         print k, v
     all_results = deepcopy(results)
-    display_results = dict()
-    final = convert_to_latex(all_results, eval_level=['word'], inc=False, utt_seg=False,
-                             only_include=['f1_<rm_word', 'f1_<rps_word', 'f1_<e_word'])
-    print final
+
+    # final = convert_to_latex(all_results, eval_level=['word'], inc=False, utt_seg=False,
+    #                         only_include=['f1_<rm_word', 'f1_<rps_word', 'f1_<e_word'])
+    for key, value in all_results.iteritems():
+        if key in ['f1_<rm_word', 'f1_<rps_word', 'f1_<e_word']:
+            print '{}:\t{:.3f}'.format(key, value)
 
 
 def main(in_dataset_file, in_model_folder):
