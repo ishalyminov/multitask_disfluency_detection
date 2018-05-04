@@ -357,35 +357,50 @@ def predict_increco_file(in_model,
         print "no timings in input file, creating fake timings"
         raise NotImplementedError
 
+    # collecting a single dataset for the model to predict in batches
+    utterances, tags = [], []
+    for speaker, speaker_data in dialogues:
+        timing_data, lex_data, pos_data, labels = speaker_data
+        # iterate through the utterances
+        # utt_idx = -1
+
+        for i in range(0, len(timing_data)):
+            # print i, timing_data[i]
+            _, end = timing_data[i]
+            if "<t" in labels[i]:
+                utterances.append([])
+                tags.append([])
+            utterances[-1].append(lex_data[i])
+            tags[-1].append(labels[i])
+
+    dataset = pd.DataFrame({'utterance': utterances, 'tags': tags})
+    X, y = make_dataset(dataset, in_vocab, in_label_vocab)
+    predictions = predict(in_model, (X, y), in_rev_label_vocab, in_session)
+    global_tag_counter = 0
+
     for speaker, speaker_data in dialogues:
         if target_file_path:
             target_file.write("Speaker: " + str(speaker) + "\n\n")
         timing_data, lex_data, pos_data, labels = speaker_data
         # iterate through the utterances
         # utt_idx = -1
-        context = deque([], maxlen=MAX_INPUT_LENGTH)
-        current_time = 0
+
         for i in range(0, len(timing_data)):
             # print i, timing_data[i]
             _, end = timing_data[i]
             if "<t" in labels[i]:
-                context.clear()  # reset after each utt if non pre-seg
-            timing = None
+                utterances.append([])
+                tags.append([])
             word = lex_data[i]
             pos = pos_data[i]
-            context.append(word)
-            predicted_tags = predict_single_tag(' '.join(context),
-                                               in_model,
-                                               in_vocab,
-                                               in_label_vocab,
-                                               in_rev_label_vocab,
-                                               in_session)
+            predicted_tags = [predictions[global_tag_counter]]
+            global_tag_counter += 1
             current_time = end
             if target_file_path:
                 target_file.write("Time: " + str(current_time) + "\n")
-                new_words = lex_data[i-(len(predicted_tags)-1):i+1]
-                new_pos = pos_data[i-(len(predicted_tags)-1):i+1]
-                new_timings = timing_data[i-(len(predicted_tags)-1):i+1]
+                new_words = lex_data[i - (len(predicted_tags) - 1):i + 1]
+                new_pos = pos_data[i - (len(predicted_tags) - 1):i + 1]
+                new_timings = timing_data[i - (len(predicted_tags) - 1):i + 1]
                 for t, w, p, tag in zip(new_timings,
                                         new_words,
                                         new_pos,

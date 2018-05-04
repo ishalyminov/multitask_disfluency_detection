@@ -7,7 +7,6 @@ import matplotlib
 matplotlib.use('agg')
 
 import tensorflow as tf
-import pandas as pd
 
 THIS_FILE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(THIS_FILE_DIR,
@@ -105,6 +104,7 @@ def main(in_dataset_file, in_model_folder):
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
         eval_deep_disfluency(model, vocab, label_vocab, rev_label_vocab, in_dataset_file, sess)
+
 
 if __name__ == '__main__':
     parser = configure_argument_parser()
