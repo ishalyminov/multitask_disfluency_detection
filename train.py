@@ -4,15 +4,12 @@ import os
 import numpy as np
 import pandas as pd
 
-import tensorflow as tf
-
+from config import read_config, DEFAULT_CONFIG_FILE
 from data_utils import make_vocabulary, make_char_vocabulary
 from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     save,
                                     make_dataset,
-                                    MAX_INPUT_LENGTH,
-                                    MAX_VOCABULARY_SIZE,
                                     MODEL_NAME,
                                     get_class_weight_proportional)
 
@@ -21,31 +18,39 @@ def configure_argument_parser():
     parser = ArgumentParser(description='Train LSTM dialogue filter')
     parser.add_argument('dataset_folder')
     parser.add_argument('model_folder')
+    parser.add_argument('--config', default=DEFAULT_CONFIG_FILE)
 
     return parser
 
 
-def main(in_dataset_folder, in_model_folder):
+def main(in_dataset_folder, in_model_folder, in_config):
     trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
-    vocab, _ = make_vocabulary(trainset['utterance'].values, MAX_VOCABULARY_SIZE)
+    if in_config['use_pos_tags']:
+        utterances = []
+        for utterance, postags in zip(trainset['utterance'], trainset['pos']):
+            utterance_augmented = ['{}_{}'.format(token, pos)
+                                   for token, pos in zip(utterance, postags)]
+            utterances.append(utterance_augmented)
+    else:
+        utterances = trainset['utterance']
+    vocab, _ = make_vocabulary(utterances, in_config['max_vocabulary_size'])
     char_vocab = make_char_vocabulary()
     label_vocab, _ = make_vocabulary(trainset['tags'].values,
-                                     MAX_VOCABULARY_SIZE,
+                                     in_config['max_vocabulary_size'],
                                      special_tokens=[])
-    eval_label_vocab, _ = make_vocabulary(trainset['eval_tags'].values,
-                                          MAX_VOCABULARY_SIZE,
-                                          special_tokens=[])
-    # label_vocab = {key: idx for idx, key in enumerate(filter(lambda x: x.startswith('<rm-4'), label_vocab.keys()))}
-    X_train, y_train = make_dataset(trainset, vocab, label_vocab)
-    X_dev, y_dev = make_dataset(devset, vocab, label_vocab)
-    X_test, y_test = make_dataset(testset, vocab, label_vocab)
+    X_train, y_train = make_dataset(trainset, vocab, label_vocab, in_config)
+    X_dev, y_dev = make_dataset(devset, vocab, label_vocab, in_config)
+    X_test, y_test = make_dataset(testset, vocab, label_vocab, in_config)
     class_weight = get_class_weight_proportional(np.argmax(y_train, axis=-1))
 
-    save(vocab, char_vocab, label_vocab, eval_label_vocab, in_model_folder)
+    save(in_config, vocab, char_vocab, in_model_folder)
 
-    model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
+    model = create_model(len(vocab),
+                         in_config['embedding_size'],
+                         in_config['max_input_length'],
+                         len(label_vocab))
     train(model,
           (X_train, y_train),
           (X_dev, y_dev),
@@ -53,15 +58,15 @@ def main(in_dataset_folder, in_model_folder):
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
-          learning_rate=0.01,
-          batch_size=32,
-          epochs=100,
-          steps_per_epoch=1000)
+          learning_rate=in_config['learning_rate'],
+          batch_size=in_config['batch_size'],
+          epochs=in_config['epochs_number'],
+          steps_per_epoch=in_config['steps_per_epoch'])
 
 
 if __name__ == '__main__':
     parser = configure_argument_parser()
     args = parser.parse_args()
 
-    main(args.dataset_folder, args.model_folder)
-
+    config = read_config(args.config)
+    main(args.dataset_folder, args.model_folder, config)

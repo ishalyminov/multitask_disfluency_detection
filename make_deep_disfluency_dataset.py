@@ -15,16 +15,12 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
 from deep_disfluency.feature_extraction.feature_utils import load_data_from_disfluency_corpus_file
-from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
 
 
 def deep_disfluency_dataset_to_data_frame(in_dataset):
-    eval_tags = [convert_from_inc_disfluency_tags_to_eval_tags(tags, tokens, representation='disf1')
-                 for tags, tokens in zip(in_dataset[4], in_dataset[2])]
     return pd.DataFrame({'utterance': in_dataset[2],
                          'pos': in_dataset[3],
-                         'tags': in_dataset[4],
-                         'eval_tags': eval_tags})
+                         'tags': in_dataset[4]})
 
 
 def get_unique_elements(in_list):

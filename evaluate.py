@@ -22,7 +22,6 @@ from deep_disfluency.evaluation.disf_evaluation import incremental_output_disflu
 from deep_disfluency.evaluation.disf_evaluation import final_output_disfluency_eval_from_file
 from deep_disfluency.evaluation.eval_utils import get_tag_data_from_corpus_file
 from deep_disfluency.evaluation.eval_utils import rename_all_repairs_in_line_with_index
-from deep_disfluency.evaluation.results_utils import convert_to_latex
 from dialogue_denoiser_lstm import load, predict_increco_file
 
 
@@ -39,6 +38,7 @@ def eval_deep_disfluency(in_model,
                          in_label_vocab,
                          in_rev_label_vocab,
                          source_file_path,
+                         in_config,
                          in_session):
     increco_file = 'swbd_disf_heldout_data_output_increco.text'
     predict_increco_file(in_model,
@@ -46,6 +46,7 @@ def eval_deep_disfluency(in_model,
                          in_label_vocab,
                          in_rev_label_vocab,
                          source_file_path,
+                         in_config,
                          in_session,
                          target_file_path=increco_file)
     IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
@@ -54,14 +55,13 @@ def eval_deep_disfluency(in_model,
         # if "asr" in division and not dialogue[:4] in good_asr: continue
         gold_data[dialogue] = (a, b, c, d)
     final_output_name = increco_file.replace("_increco", "_final")
-    incremental_output_disfluency_eval_from_file(
-        increco_file,
-        gold_data,
-        utt_eval=True,
-        error_analysis=True,
-        word=True,
-        interval=False,
-        outputfilename=final_output_name)
+    incremental_output_disfluency_eval_from_file(increco_file,
+                                                 gold_data,
+                                                 utt_eval=True,
+                                                 error_analysis=True,
+                                                 word=True,
+                                                 interval=False,
+                                                 outputfilename=final_output_name)
 
     all_results = {}
     all_error_dicts = {}
@@ -102,10 +102,16 @@ def eval_deep_disfluency(in_model,
 
 def main(in_dataset_file, in_model_folder):
     with tf.Session() as sess:
-        model, vocab, char_vocab, label_vocab, eval_label_vocab = load(in_model_folder, sess)
+        model, config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-        eval_deep_disfluency(model, vocab, label_vocab, rev_label_vocab, in_dataset_file, sess)
+        eval_deep_disfluency(model,
+                             vocab,
+                             label_vocab,
+                             rev_label_vocab,
+                             in_dataset_file,
+                             config,
+                             sess)
 
 
 if __name__ == '__main__':

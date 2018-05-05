@@ -3,7 +3,7 @@ from collections import defaultdict
 from operator import itemgetter
 import logging
 
-import keras
+import tensorflow as tf
 
 PAD_ID = 0
 UNK_ID = 1
@@ -40,9 +40,9 @@ def vectorize_sequences(in_sequences, in_vocab):
 
 
 def pad_sequences(in_sequences, in_max_input_length, value=PAD_ID):
-    return keras.preprocessing.sequence.pad_sequences(in_sequences,
-                                                      value=value,
-                                                      maxlen=in_max_input_length,
-                                                      padding='pre')
+    return tf.keras.preprocessing.sequence.pad_sequences(in_sequences,
+                                                         value=value,
+                                                         maxlen=in_max_input_length,
+                                                         padding='pre')
 
 

@@ -1,0 +1,12 @@
+{
+  "max_vocabulary_size": 15000,
+  "embedding_size": 256,
+  "max_input_length": 5,
+  "lr": 0.01,
+  "batch_size": 32,
+  "steps_per_epoch": 1000,
+  "epochs_number": 100,
+  "use_pos_tags": true,
+  "pos_embedding_size": 32,
+  "class_weight": "proportional"
+}

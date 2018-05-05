@@ -5,7 +5,6 @@ from collections import deque, defaultdict
 import sys
 from operator import itemgetter
 
-import keras
 import sklearn as sk
 import tensorflow as tf
 from tensorflow.contrib import rnn
@@ -29,18 +28,12 @@ random.seed(273)
 np.random.seed(273)
 tf.set_random_seed(273)
 
-MAX_VOCABULARY_SIZE = 15000
-# we have dependencies up to 8 tokens back, so this should do
-MAX_INPUT_LENGTH = 5
-MEAN_WORD_LENGTH = 8
-CNN_CONTEXT_LENGTH = 3
-MAX_CHAR_INPUT_LENGTH = CNN_CONTEXT_LENGTH * (MEAN_WORD_LENGTH + 1)
-
 MODEL_NAME = 'ckpt'
 VOCABULARY_NAME = 'vocab.json'
 CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
 EVAL_LABEL_VOCABULARY_NAME = 'eval_label_vocab.json'
+CONFIG_NAME = 'config.json'
 
 
 def get_sample_weight(in_labels, in_class_weight_map):
@@ -72,9 +65,9 @@ def get_class_weight_auto(in_labels):
     return class_weight_map
 
 
-def make_data_points(in_tokens, in_tags):
+def make_data_points(in_tokens, in_tags, in_max_input_length):
     contexts, tags = [], []
-    context = deque([], maxlen=MAX_INPUT_LENGTH)
+    context = deque([], maxlen=in_max_input_length)
     for token, tag in zip(in_tokens, in_tags):
         context.append(token)
         contexts.append(list(context))
@@ -82,35 +75,29 @@ def make_data_points(in_tokens, in_tags):
     return contexts, tags
 
 
-def make_dataset(in_dataset, in_vocab, in_label_vocab):
+def make_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
     contexts, tags = [], []
     for idx, row in in_dataset.iterrows():
-        current_contexts, current_tags = make_data_points(row['utterance'], row['tags'])
-        # for context, tag in zip(current_contexts, current_tags):
-        #     if tag in in_label_vocab:
-        #         contexts.append(context)
-        #         tags.append(tag)
+        if in_config['use_pos_tags']:
+            utterance = ['{}_{}'.format(token, pos)
+                         for token, pos in zip(row['utterance'], row['pos'])]
+        else:
+            utterance = row['utterance']
+        current_contexts, current_tags = make_data_points(utterance,
+                                                          row['tags'],
+                                                          in_config['max_input_length'])
         contexts += current_contexts
         tags += current_tags
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
-    tokens_padded = pad_sequences(tokens_vectorized, MAX_INPUT_LENGTH)
+    tokens_padded = pad_sequences(tokens_vectorized, in_config['use_pos_tags'])
 
     labels = vectorize_sequences([tags], in_label_vocab)
-
-    y = keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab))
+    y = tf.one_hot(labels[0], len(in_label_vocab))
  
     return tokens_padded, y
 
 
 def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
-    """Generator used by `keras.models.Sequential.fit_generator` to yield batches
-    of pairs.
-    Such a generator is required by the parallel nature of the aforementioned
-    Keras function. It can theoretically feed batches of pairs indefinitely
-    (looping over the dataset). Ideally, it would be called so that an epoch ends
-    exactly with the last batch of the dataset.
-    """
-
     data_idx = range(labels.shape[0])
     while True:
         batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probabilities)
@@ -175,10 +162,6 @@ def train(in_model,
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(loss_op)
 
-    # Evaluate model (with test logits, for dropout to be disabled)
-    y_pred_op = tf.argmax(logits, 1)
-    y_true_op = tf.argmax(y, 1)
-
     init = tf.global_variables_initializer()
     saver = tf.train.Saver(tf.global_variables())
     # Start training
@@ -240,49 +223,6 @@ def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_session, batc
     return y_pred, result_map
 
 
-def evaluate_deep_disfluency(in_model,
-                             in_dataset,
-                             in_label_vocab,
-                             in_eval_label_vocab,
-                             in_rev_label_vocab,
-                             in_original_utterances,
-                             in_rnn_gold_tags,
-                             in_session,
-                             batch_size=32):
-    # RNN label IDs
-    rnn_pred_ids, rnn_result_map = evaluate(in_model,
-                                            in_dataset,
-                                            get_tag_mapping(in_label_vocab),
-                                            in_session)
-    rnn_pred_tags = map(in_rev_label_vocab.get, rnn_pred_ids)
-
-    eval_pred_tags = []
-    eval_gold_tags = []
-    tag_idx = 0
-
-    for original_utterance, rnn_gold_tags_current in zip(in_original_utterances, in_rnn_gold_tags):
-        rnn_pred_tags_current = rnn_pred_tags[tag_idx: tag_idx + len(original_utterance)]
-        eval_pred_tags_current = convert_from_inc_disfluency_tags_to_eval_tags(rnn_pred_tags_current,
-                                                                               original_utterance,
-                                                                               representation='disf1')
-        eval_pred_tags += eval_pred_tags_current
-        eval_gold_tags += convert_from_inc_disfluency_tags_to_eval_tags(rnn_gold_tags_current,
-                                                                        original_utterance,
-                                                                        representation='disf1') 
-    eval_gold_ids = map(in_eval_label_vocab.get, eval_gold_tags)
-    eval_pred_ids = map(in_eval_label_vocab.get, eval_pred_tags)
-
-    tag_mapping = get_tag_mapping(in_eval_label_vocab)
-
-    result = {'loss': rnn_result_map['loss'], 'acc': rnn_result_map['acc']}
-    for class_name, class_ids in tag_mapping.iteritems():
-        result['f1_' + class_name] = sk.metrics.f1_score(y_true=eval_gold_ids,
-                                                         y_pred=eval_pred_ids,
-                                                         labels=class_ids,
-                                                         average='micro')
-    return result
-
-
 def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):
     X_test, y_test = in_dataset
     X, y, logits = in_model
@@ -307,6 +247,7 @@ def predict_increco_file(in_model,
                          in_label_vocab,
                          in_rev_label_vocab,
                          source_file_path,
+                         in_config,
                          in_session,
                          target_file_path=None,
                          is_asr_results_file=False):
@@ -361,7 +302,7 @@ def predict_increco_file(in_model,
         raise NotImplementedError
 
     # collecting a single dataset for the model to predict in batches
-    utterances, tags = [], []
+    utterances, tags, pos = [], [], []
     for speaker, speaker_data in dialogues:
         timing_data, lex_data, pos_data, labels = speaker_data
         # iterate through the utterances
@@ -373,16 +314,19 @@ def predict_increco_file(in_model,
             if "<t" in labels[i]:
                 utterances.append([])
                 tags.append([])
+                pos.append([])
             utterances[-1].append(lex_data[i])
             tags[-1].append(labels[i])
+            pos[-1].append(pos_data[i])
 
     # eval tags --> RNN tags
     dataset = pd.DataFrame({'utterance': utterances,
                             'tags': [convert_from_eval_tags_to_inc_disfluency_tags(tags_i,
                                                                                    words_i,
                                                                                    representation="disf1")
-                                     for tags_i, words_i in zip(tags, utterances)]})
-    X, y = make_dataset(dataset, in_vocab, in_label_vocab)
+                                     for tags_i, words_i in zip(tags, utterances)],
+                            'pos': pos})
+    X, y = make_dataset(dataset, in_vocab, in_label_vocab, in_config)
     predictions = predict(in_model, (X, y), in_rev_label_vocab, in_session)
     predictions_eval = []
     global_word_index = 0
@@ -471,7 +415,7 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
     W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]))
     b = tf.Variable(tf.random_normal([in_classes_number]))
 
-    return X, y, tf.add(tf.matmul(outputs[:,-1,:], W), b)
+    return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
 
 
 def load(in_model_folder, in_session):
@@ -481,22 +425,25 @@ def load(in_model_folder, in_session):
         char_vocab = json.load(char_vocab_in)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
         label_vocab = json.load(label_vocab_in)
-    with open(os.path.join(in_model_folder, EVAL_LABEL_VOCABULARY_NAME)) as eval_label_vocab_in:
-        eval_label_vocab = json.load(eval_label_vocab_in)
-    model = create_model(len(vocab), 256, MAX_INPUT_LENGTH, len(label_vocab))
+    with open(os.path.join(in_model_folder, CONFIG_NAME)) as config_in:
+        config = json.load(config_in)
+    model = create_model(len(vocab),
+                         config['embedding_size'],
+                         config['max_input_length'],
+                         len(label_vocab))
     loader = tf.train.Saver()
     loader.restore(in_session, os.path.join(in_model_folder, MODEL_NAME))
-    return model, vocab, char_vocab, label_vocab, eval_label_vocab
+    return model, config, vocab, char_vocab, label_vocab
 
 
-def save(in_vocab, in_char_vocab, in_label_vocab, in_eval_label_vocab, in_model_folder):
+def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder):
     if not os.path.exists(in_model_folder):
         os.makedirs(in_model_folder)
+    with open(os.path.join(in_model_folder, CONFIG_NAME), 'w') as config_out:
+        json.dump(in_config, config_out)
     with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
         json.dump(in_vocab, vocab_out)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME), 'w') as char_vocab_out:
         json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
-    with open(os.path.join(in_model_folder, EVAL_LABEL_VOCABULARY_NAME), 'w') as eval_label_vocab_out:
-        json.dump(in_eval_label_vocab, eval_label_vocab_out)
