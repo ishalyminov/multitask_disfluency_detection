@@ -45,7 +45,7 @@ def main(in_dataset_folder, in_model_folder, in_config):
     X_test, y_test = make_dataset(testset, vocab, label_vocab, in_config)
     class_weight = get_class_weight_proportional(np.argmax(y_train, axis=-1))
 
-    save(in_config, vocab, char_vocab, in_model_folder)
+    save(in_config, vocab, char_vocab, label_vocab, in_model_folder)
 
     model = create_model(len(vocab),
                          in_config['embedding_size'],
@@ -58,7 +58,7 @@ def main(in_dataset_folder, in_model_folder, in_config):
           os.path.join(in_model_folder, MODEL_NAME),
           label_vocab,
           class_weight,
-          learning_rate=in_config['learning_rate'],
+          learning_rate=in_config['lr'],
           batch_size=in_config['batch_size'],
           epochs=in_config['epochs_number'],
           steps_per_epoch=in_config['steps_per_epoch'])

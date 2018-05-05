@@ -13,13 +13,13 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import MinMaxScaler
 
-from deep_disfluency.utils.tools import (convert_from_eval_tags_to_inc_disfluency_tags,
-                                         convert_from_inc_disfluency_tags_to_eval_tags)
+from data_utils import vectorize_sequences, pad_sequences
 
 THIS_FILE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
-from data_utils import vectorize_sequences, pad_sequences
+from deep_disfluency.utils.tools import (convert_from_eval_tags_to_inc_disfluency_tags,
+                                         convert_from_inc_disfluency_tags_to_eval_tags)
 from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
 from deep_disfluency.evaluation.disf_evaluation import get_tag_data_from_corpus_file
 from deep_disfluency_utils import get_tag_mapping
@@ -89,11 +89,10 @@ def make_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
         contexts += current_contexts
         tags += current_tags
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
-    tokens_padded = pad_sequences(tokens_vectorized, in_config['use_pos_tags'])
+    tokens_padded = pad_sequences(tokens_vectorized, in_config['max_input_length'])
 
     labels = vectorize_sequences([tags], in_label_vocab)
-    y = tf.one_hot(labels[0], len(in_label_vocab))
- 
+    y = tf.keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab)) 
     return tokens_padded, y
 
 
@@ -145,7 +144,7 @@ def train(in_model,
           steps_per_epoch=1000,
           **kwargs):
     X_train, y_train = train_data
-    y_train_flattened = np.argmax(y_train, -1)
+    y_train_flattened = np.argmax(y_train, axis=-1)
     class_weight = get_class_weight_proportional(y_train_flattened)
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
