@@ -61,11 +61,12 @@ def get_class_weight_sqrt(in_labels):
     return label_weights
 
 
-def get_class_weight_proportional(in_labels):
+def get_class_weight_proportional(in_labels, smoothing_coef=1.0):
     label_freqs = defaultdict(lambda: 0)
     for label in in_labels:
         label_freqs[label] += 1.0
-    label_weights = {label: 1.0 / float(freq) for label, freq in label_freqs.iteritems()}
+    label_weights = {label: 1.0 / np.power(float(freq), 1.0 / smoothing_coef)
+                     for label, freq in label_freqs.iteritems()}
     return label_weights
 
 
@@ -155,7 +156,8 @@ def train(in_model,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
-    class_weight = get_class_weight_proportional(y_train_flattened)
+    class_weight = get_class_weight_proportional(y_train_flattened,
+                                                 smoothing_coef=config['smoothing_coef'])
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
     scaler = MinMaxScaler(feature_range=(1, 2)) 

@@ -8,5 +8,6 @@
   "epochs_number": 100,
   "use_pos_tags": true,
   "pos_embedding_size": 32,
-  "class_weight": "proportional"
+  "class_weight": "proportional",
+  "class_weight_smoothing_coef": 1.05
 }

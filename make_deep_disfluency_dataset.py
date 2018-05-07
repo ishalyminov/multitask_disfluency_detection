@@ -44,9 +44,9 @@ def main(in_result_folder, in_format):
     train = load_dataset(trainset, convert_to_dnn_format=True)
     dev = load_dataset(devset, convert_to_dnn_format=True)
     test = load_dataset(testset, convert_to_dnn_format=True)
-    print 'Trainset size: {} utterances'.format(len(train[0]))
-    print 'Devset size: {} utterances'.format(len(dev[0]))
-    print 'Testset size: {} utterances'.format(len(test[0]))
+    print 'Trainset size: {} utterances'.format(len(train[2]))
+    print 'Devset size: {} utterances'.format(len(dev[2]))
+    print 'Testset size: {} utterances'.format(len(test[2]))
     unique_train_tags = get_unique_elements(train[4])
     print 'Unique #tags in trainset: {}'.format(len(unique_train_tags))
 
