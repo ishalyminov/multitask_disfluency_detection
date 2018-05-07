@@ -27,6 +27,7 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
     trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
+    model = None
     with tf.Session() as sess:
         if not resume:
             if in_config['use_pos_tags']:
@@ -42,13 +43,14 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
             label_vocab, _ = make_vocabulary(trainset['tags'].values,
                                              in_config['max_vocabulary_size'],
                                              special_tokens=[])
-            _ = create_model(len(vocab),
-                             in_config['embedding_size'],
-                             in_config['max_input_length'],
-                             len(label_vocab))
+            model = create_model(len(vocab),
+                                 in_config['embedding_size'],
+                                 in_config['max_input_length'],
+                                 len(label_vocab))
+            init = tf.global_variables_initializer()
+            sess.run(init)
             save(in_config, vocab, char_vocab, label_vocab, in_model_folder, sess)
-
-        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
+        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess, existing_model=model)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
         X_train, y_train = make_dataset(trainset, vocab, label_vocab, actual_config)

@@ -158,7 +158,7 @@ def train(in_model,
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
     class_weight = get_class_weight_proportional(y_train_flattened,
-                                                 smoothing_coef=config['smoothing_coef'])
+                                                 smoothing_coef=config['class_weight_smoothing_coef'])
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
     scaler = MinMaxScaler(feature_range=(1, 2)) 
@@ -174,7 +174,6 @@ def train(in_model,
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=config['lr'])
     train_op = optimizer.minimize(loss_op)
 
-    init = tf.global_variables_initializer()
     saver = tf.train.Saver(tf.global_variables())
 
     sample_probs = sample_weights / np.sum(sample_weights)
@@ -185,7 +184,7 @@ def train(in_model,
     # Run the initializer
     session.run(init)
 
-    step, best_dev_loss = 0, np.inf
+    step, best_dev_f1_rm = 0, 0.0
     for batch_x, batch_y in batch_gen:
         step += 1
         # Run optimization op (backprop)
@@ -193,13 +192,13 @@ def train(in_model,
         if step % config['steps_per_epoch'] == 0:
             print 'Step {} eval'.format(step)
 
-            _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
+            _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, session)
             print '; '.join(['dev {}: {:.3f}'.format(key, value)
                              for key, value in dev_eval.iteritems()])
-            if dev_eval['loss'] < best_dev_loss:
-                best_dev_loss = dev_eval['loss']
+            if best_dev_f1_rm < dev_eval['f1_rm']:
+                best_dev_f1_rm = dev_eval['f1_rm']
                 saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
-                print 'New best loss. Saving checkpoint'
+                print 'New best f1_rm. Saving checkpoint'
     print "Optimization Finished!"
 
 
@@ -478,22 +477,23 @@ def predict_single_tag(in_line, in_model, in_vocab, in_label_vocab, in_rev_label
 
 
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
-    X = tf.placeholder(tf.int32, [None, in_max_input_length])
-    y = tf.placeholder(tf.float32, [None, in_classes_number])
-    embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0))
-    emb = tf.nn.embedding_lookup(embeddings, X)
+    with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
+        X = tf.placeholder(tf.int32, [None, in_max_input_length], name='X')
+        y = tf.placeholder(tf.float32, [None, in_classes_number], name='y')
+        embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0), name='emb')
+        emb = tf.nn.embedding_lookup(embeddings, X)
 
-    lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0)
+        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm')
 
-    outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
+        outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-    W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]))
-    b = tf.Variable(tf.random_normal([in_classes_number]))
+        W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
+        b = tf.Variable(tf.random_normal([in_classes_number]), name='b')
 
     return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
 
 
-def load(in_model_folder, in_session):
+def load(in_model_folder, in_session, existing_model=None):
     with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
         vocab = json.load(vocab_in)
     with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
@@ -502,10 +502,13 @@ def load(in_model_folder, in_session):
         label_vocab = json.load(label_vocab_in)
     with open(os.path.join(in_model_folder, CONFIG_NAME)) as config_in:
         config = json.load(config_in)
-    model = create_model(len(vocab),
-                         config['embedding_size'],
-                         config['max_input_length'],
-                         len(label_vocab))
+    if not existing_model:
+        model = create_model(len(vocab),
+                             config['embedding_size'],
+                             config['max_input_length'],
+                             len(label_vocab))
+    else:
+        model = existing_model
     loader = tf.train.Saver()
     loader.restore(in_session, os.path.join(in_model_folder, MODEL_NAME))
     return model, config, vocab, char_vocab, label_vocab
@@ -522,5 +525,5 @@ def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, in
         json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
-    saver = tf.train.Saver(tf.global_variables())
+    saver = tf.train.Saver()
     saver.save(in_session, os.path.join(in_model_folder, MODEL_NAME))
