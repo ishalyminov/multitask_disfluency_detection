@@ -148,10 +148,10 @@ def train(in_model,
           train_data,
           dev_data,
           test_data,
-          in_checkpoint_folder,
           vocab,
           label_vocab,
           rev_label_vocab,
+          in_model_folder,
           config,
           **kwargs):
     X_train, y_train = train_data
@@ -198,7 +198,7 @@ def train(in_model,
                                  for key, value in dev_eval.iteritems()])
                 if dev_eval['loss'] < best_dev_loss:
                     best_dev_loss = dev_eval['loss']
-                    saver.save(sess, in_checkpoint_folder)
+                    saver.save(sess, os.path.join(in_model_folder, MODEL_NAME))
                     print 'New best loss. Saving checkpoint'
     print "Optimization Finished!"
 
@@ -511,7 +511,7 @@ def load(in_model_folder, in_session):
     return model, config, vocab, char_vocab, label_vocab
 
 
-def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder):
+def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, in_session):
     if not os.path.exists(in_model_folder):
         os.makedirs(in_model_folder)
     with open(os.path.join(in_model_folder, CONFIG_NAME), 'w') as config_out:
@@ -522,3 +522,5 @@ def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder):
         json.dump(in_char_vocab, char_vocab_out)
     with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
         json.dump(in_label_vocab, label_vocab_out)
+    saver = tf.train.Saver(tf.global_variables())
+    saver.save(in_session, os.path.join(in_model_folder, MODEL_NAME))
