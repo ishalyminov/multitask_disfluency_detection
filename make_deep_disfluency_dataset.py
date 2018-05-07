@@ -4,6 +4,8 @@ from argparse import ArgumentParser
 
 import pandas as pd
 
+from deep_disfluency_utils import load_dataset
+
 THIS_FILE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(THIS_FILE_DIR,
                         'deep_disfluency',
@@ -13,8 +15,6 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
                         'switchboard')
 
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
-
-from deep_disfluency.feature_extraction.feature_utils import load_data_from_disfluency_corpus_file
 
 
 def deep_disfluency_dataset_to_data_frame(in_dataset):
@@ -30,19 +30,20 @@ def get_unique_elements(in_list):
     return result
 
 
-def main(in_result_folder):
-    train = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_train_1_data.csv'),
-                                                  representation='disf1',
-                                                  limit=8,
-                                                  convert_to_dnn_format=True)
-    dev = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_heldout_data.csv'),
-                                                representation='disf1',
-                                                limit=8,
-                                                convert_to_dnn_format=True)
-    test = load_data_from_disfluency_corpus_file(os.path.join(DATA_DIR, 'swbd_disf_test_data.csv'),
-                                                 representation='disf1',
-                                                 limit=8,
-                                                 convert_to_dnn_format=True)
+def main(in_result_folder, in_format):
+    if in_format == 'disfluency':
+        trainset, devset, testset = (os.path.join(DATA_DIR, 'swbd_disf_train_1_data.csv'),
+                                     os.path.join(DATA_DIR, 'swbd_disf_heldout_data.csv'),
+                                     os.path.join(DATA_DIR, 'swbd_disf_test_data.csv'))
+    elif in_format == 'timings':
+        trainset, devset, testset = (os.path.join(DATA_DIR, 'swbd_disf_train_1_data_timings.csv'),
+                                     os.path.join(DATA_DIR, 'swbd_disf_heldout_data_timings.csv'),
+                                     os.path.join(DATA_DIR, 'swbd_disf_test_data_timings.csv'))
+    else:
+        raise NotImplementedError
+    train = load_dataset(trainset, convert_to_dnn_format=True)
+    dev = load_dataset(devset, convert_to_dnn_format=True)
+    test = load_dataset(testset, convert_to_dnn_format=True)
     print 'Trainset size: {} utterances'.format(len(train[0]))
     print 'Devset size: {} utterances'.format(len(dev[0]))
     print 'Testset size: {} utterances'.format(len(test[0]))
@@ -59,6 +60,7 @@ def main(in_result_folder):
 def configure_argument_parser():
     parser = ArgumentParser(description='Make dataset from deep_disfluency (Hough, Schlangen 2015)')
     parser.add_argument('result_folder')
+    parser.add_argument('format', help='[disfluency/timings]')
 
     return parser
 
@@ -67,4 +69,4 @@ if __name__ == '__main__':
     parser = configure_argument_parser()
     args = parser.parse_args()
 
-    main(args.result_folder)
+    main(args.result_folder, args.format)
