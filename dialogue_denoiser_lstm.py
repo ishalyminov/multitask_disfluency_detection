@@ -153,6 +153,7 @@ def train(in_model,
           rev_label_vocab,
           in_model_folder,
           config,
+          session,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
@@ -175,31 +176,30 @@ def train(in_model,
 
     init = tf.global_variables_initializer()
     saver = tf.train.Saver(tf.global_variables())
-    # Start training
-    with tf.Session() as sess:
-        sample_probs = sample_weights / np.sum(sample_weights)
-        batch_gen = random_batch_generator(X_train,
-                                           y_train,
-                                           config['batch_size'],
-                                           sample_probabilities=sample_probs)
-        # Run the initializer
-        sess.run(init)
 
-        step, best_dev_loss = 0, np.inf
-        for batch_x, batch_y in batch_gen:
-            step += 1
-            # Run optimization op (backprop)
-            sess.run(train_op, feed_dict={X: batch_x, y: batch_y})
-            if step % config['steps_per_epoch'] == 0:
-                print 'Step {} eval'.format(step)
+    sample_probs = sample_weights / np.sum(sample_weights)
+    batch_gen = random_batch_generator(X_train,
+                                       y_train,
+                                       config['batch_size'],
+                                       sample_probabilities=sample_probs)
+    # Run the initializer
+    session.run(init)
 
-                _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
-                print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                                 for key, value in dev_eval.iteritems()])
-                if dev_eval['loss'] < best_dev_loss:
-                    best_dev_loss = dev_eval['loss']
-                    saver.save(sess, os.path.join(in_model_folder, MODEL_NAME))
-                    print 'New best loss. Saving checkpoint'
+    step, best_dev_loss = 0, np.inf
+    for batch_x, batch_y in batch_gen:
+        step += 1
+        # Run optimization op (backprop)
+        session.run(train_op, feed_dict={X: batch_x, y: batch_y})
+        if step % config['steps_per_epoch'] == 0:
+            print 'Step {} eval'.format(step)
+
+            _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
+            print '; '.join(['dev {}: {:.3f}'.format(key, value)
+                             for key, value in dev_eval.iteritems()])
+            if dev_eval['loss'] < best_dev_loss:
+                best_dev_loss = dev_eval['loss']
+                saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
+                print 'New best loss. Saving checkpoint'
     print "Optimization Finished!"
 
 

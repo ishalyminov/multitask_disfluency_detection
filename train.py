@@ -1,7 +1,6 @@
 from argparse import ArgumentParser
 import os
 
-import numpy as np
 import pandas as pd
 import tensorflow as tf
 
@@ -11,8 +10,7 @@ from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     save,
                                     make_dataset,
-                                    MODEL_NAME,
-                                    get_class_weight_proportional, load)
+                                    load)
 
 
 def configure_argument_parser():
@@ -44,18 +42,18 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
             label_vocab, _ = make_vocabulary(trainset['tags'].values,
                                              in_config['max_vocabulary_size'],
                                              special_tokens=[])
-            model = create_model(len(vocab),
-                                 in_config['embedding_size'],
-                                 in_config['max_input_length'],
-                                 len(label_vocab))
+            _ = create_model(len(vocab),
+                             in_config['embedding_size'],
+                             in_config['max_input_length'],
+                             len(label_vocab))
             save(in_config, vocab, char_vocab, label_vocab, in_model_folder, sess)
 
         model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-        X_train, y_train = make_dataset(trainset, vocab, label_vocab, in_config)
-        X_dev, y_dev = make_dataset(devset, vocab, label_vocab, in_config)
-        X_test, y_test = make_dataset(testset, vocab, label_vocab, in_config)
+        X_train, y_train = make_dataset(trainset, vocab, label_vocab, actual_config)
+        X_dev, y_dev = make_dataset(devset, vocab, label_vocab, actual_config)
+        X_test, y_test = make_dataset(testset, vocab, label_vocab, actual_config)
 
         train(model,
               (X_train, y_train),
@@ -65,7 +63,8 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
               label_vocab,
               rev_label_vocab,
               in_model_folder,
-              config)
+              actual_config,
+              sess)
 
 
 if __name__ == '__main__':
