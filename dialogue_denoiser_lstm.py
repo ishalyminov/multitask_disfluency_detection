@@ -183,7 +183,7 @@ def train(in_model,
         # Run the initializer
         sess.run(init)
 
-        step, best_dev_f1_rm = 0, np.inf
+        step, best_dev_loss = 0, np.inf
         for batch_x, batch_y in batch_gen:
             step += 1
             # Run optimization op (backprop)
@@ -191,21 +191,13 @@ def train(in_model,
             if step % config['steps_per_epoch'] == 0:
                 print 'Step {} eval'.format(step)
 
-                dev_eval = eval_deep_disfluency(in_model,
-                                                vocab,
-                                                label_vocab,
-                                                rev_label_vocab,
-                                                DEFAULT_HELDOUT_DATASET,
-                                                config,
-                                                sess,
-                                                verbose=False)
-
+                _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
                 print '; '.join(['dev {}: {:.3f}'.format(key, value)
                                  for key, value in dev_eval.iteritems()])
-                if dev_eval['f1_<rm_word'] < best_dev_f1_rm:
-                    print 'New best f1_rm. Saving checkpoint'
-                    best_dev_f1_rm = dev_eval['f1_<rm_word']
+                if dev_eval['loss'] < best_dev_loss:
+                    best_dev_loss = dev_eval['loss']
                     saver.save(sess, in_checkpoint_folder)
+                    print 'New best loss. Saving checkpoint'
     print "Optimization Finished!"
 
 

@@ -37,9 +37,11 @@ def main(in_dataset_folder, in_model_folder, in_config):
         utterances = trainset['utterance']
     vocab, _ = make_vocabulary(utterances, in_config['max_vocabulary_size'])
     char_vocab = make_char_vocabulary()
-    label_vocab, rev_label_vocab = make_vocabulary(trainset['tags'].values,
-                                                   in_config['max_vocabulary_size'],
-                                                   special_tokens=[])
+    label_vocab, _ = make_vocabulary(trainset['tags'].values,
+                                     in_config['max_vocabulary_size'],
+                                     special_tokens=[])
+    rev_label_vocab = {label_id: label
+                       for label, label_id in label_vocab.iteritems()}
     X_train, y_train = make_dataset(trainset, vocab, label_vocab, in_config)
     X_dev, y_dev = make_dataset(devset, vocab, label_vocab, in_config)
     X_test, y_test = make_dataset(testset, vocab, label_vocab, in_config)
@@ -51,17 +53,6 @@ def main(in_dataset_folder, in_model_folder, in_config):
                          in_config['embedding_size'],
                          in_config['max_input_length'],
                          len(label_vocab))
-    train(model,
-          (X_train, y_train),
-          (X_dev, y_dev),
-          (X_test, y_test),
-          os.path.join(in_model_folder, MODEL_NAME),
-          label_vocab,
-          class_weight,
-          learning_rate=in_config['lr'],
-          batch_size=in_config['batch_size'],
-          epochs=in_config['epochs_number'],
-          steps_per_epoch=in_config['steps_per_epoch'])
     train(model,
           (X_train, y_train),
           (X_dev, y_dev),

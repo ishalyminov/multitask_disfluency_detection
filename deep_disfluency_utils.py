@@ -1,3 +1,9 @@
+import os
+import sys
+
+THIS_FILE_DIR = os.path.dirname(__file__)
+sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
+
 from deep_disfluency.feature_extraction.feature_utils import load_data_from_disfluency_corpus_file
 from deep_disfluency.evaluation.disf_evaluation import get_tag_data_from_corpus_file
 from deep_disfluency.utils.tools import convert_from_eval_tags_to_inc_disfluency_tags
