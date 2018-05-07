@@ -3,6 +3,7 @@ import random
 import os
 from collections import deque, defaultdict
 import sys
+from copy import deepcopy
 from operator import itemgetter
 
 import sklearn as sk
@@ -21,7 +22,10 @@ sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 from deep_disfluency.utils.tools import (convert_from_eval_tags_to_inc_disfluency_tags,
                                          convert_from_inc_disfluency_tags_to_eval_tags)
 from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
-from deep_disfluency.evaluation.disf_evaluation import get_tag_data_from_corpus_file
+from deep_disfluency.evaluation.disf_evaluation import incremental_output_disfluency_eval_from_file
+from deep_disfluency.evaluation.disf_evaluation import final_output_disfluency_eval_from_file
+from deep_disfluency.evaluation.eval_utils import get_tag_data_from_corpus_file
+from deep_disfluency.evaluation.eval_utils import rename_all_repairs_in_line_with_index
 from deep_disfluency_utils import get_tag_mapping
 
 random.seed(273)
@@ -34,6 +38,14 @@ CHAR_VOCABULARY_NAME = 'char_vocab.json'
 LABEL_VOCABULARY_NAME = 'label_vocab.json'
 EVAL_LABEL_VOCABULARY_NAME = 'eval_label_vocab.json'
 CONFIG_NAME = 'config.json'
+
+DATA_DIR = os.path.join(THIS_FILE_DIR,
+                        'deep_disfluency',
+                        'deep_disfluency',
+                        'data',
+                        'disfluency_detection',
+                        'switchboard')
+DEFAULT_HELDOUT_DATASET = DATA_DIR + '/swbd_disf_heldout_data_timings.csv'
 
 
 def get_sample_weight(in_labels, in_class_weight_map):
@@ -136,12 +148,10 @@ def train(in_model,
           dev_data,
           test_data,
           in_checkpoint_folder,
+          vocab,
           label_vocab,
-          class_weight,
-          learning_rate=0.01,
-          epochs=100,
-          batch_size=32,
-          steps_per_epoch=1000,
+          rev_label_vocab,
+          config,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
@@ -158,7 +168,7 @@ def train(in_model,
     # Define loss and optimizer
     loss_op = get_loss_function(logits, y, class_weight_vector)
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=config['lr'])
     train_op = optimizer.minimize(loss_op)
 
     init = tf.global_variables_initializer()
@@ -168,24 +178,33 @@ def train(in_model,
         sample_probs = sample_weights / np.sum(sample_weights)
         batch_gen = random_batch_generator(X_train,
                                            y_train,
-                                           batch_size,
+                                           config['batch_size'],
                                            sample_probabilities=sample_probs)
         # Run the initializer
         sess.run(init)
 
-        step, best_dev_loss = 0, np.inf
+        step, best_dev_f1_rm = 0, np.inf
         for batch_x, batch_y in batch_gen:
             step += 1
             # Run optimization op (backprop)
             sess.run(train_op, feed_dict={X: batch_x, y: batch_y})
-            if step % steps_per_epoch == 0:
-                print 'Step {} eval'.format(step) 
+            if step % config['steps_per_epoch'] == 0:
+                print 'Step {} eval'.format(step)
 
-                _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, sess)
+                dev_eval = eval_deep_disfluency(in_model,
+                                                vocab,
+                                                label_vocab,
+                                                rev_label_vocab,
+                                                DEFAULT_HELDOUT_DATASET,
+                                                config,
+                                                sess,
+                                                verbose=False)
+
                 print '; '.join(['dev {}: {:.3f}'.format(key, value)
                                  for key, value in dev_eval.iteritems()])
-                if dev_eval['loss'] < best_dev_loss:
-                    best_dev_loss = dev_eval['loss']
+                if dev_eval['f1_<rm_word'] < best_dev_f1_rm:
+                    print 'New best f1_rm. Saving checkpoint'
+                    best_dev_f1_rm = dev_eval['f1_<rm_word']
                     saver.save(sess, in_checkpoint_folder)
     print "Optimization Finished!"
 
@@ -374,6 +393,69 @@ def predict_increco_file(in_model,
                     target_file.write("\n")
                 target_file.write("\n")
         target_file.write("\n")
+
+
+def eval_deep_disfluency(in_model,
+                         in_vocab,
+                         in_label_vocab,
+                         in_rev_label_vocab,
+                         source_file_path,
+                         in_config,
+                         in_session,
+                         verbose=True):
+    increco_file = 'swbd_disf_heldout_data_output_increco.text'
+    predict_increco_file(in_model,
+                         in_vocab,
+                         in_label_vocab,
+                         in_rev_label_vocab,
+                         source_file_path,
+                         in_config,
+                         in_session,
+                         target_file_path=increco_file)
+    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    gold_data = {}  # map from the file name to the data
+    for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
+        # if "asr" in division and not dialogue[:4] in good_asr: continue
+        gold_data[dialogue] = (a, b, c, d)
+    final_output_name = increco_file.replace("_increco", "_final")
+    incremental_output_disfluency_eval_from_file(increco_file,
+                                                 gold_data,
+                                                 utt_eval=True,
+                                                 error_analysis=True,
+                                                 word=True,
+                                                 interval=False,
+                                                 outputfilename=final_output_name)
+    # hyp_dir = experiment_dir
+    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    gold_data = {}  # map from the file name to the data
+    for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
+        # if "asr" in division and not dialogue[:4] in good_asr: continue
+        d = rename_all_repairs_in_line_with_index(list(d))
+        gold_data[dialogue] = (a, b, c, d)
+
+    # the below does just the final output evaluation, assuming a final output file, faster
+    hyp_file = "swbd_disf_heldout_data_output_final.text"
+    word = True  # world-level analyses
+    error = True  # get an error analysis
+    results, speaker_rate_dict, error_analysis = final_output_disfluency_eval_from_file(
+        hyp_file,
+        gold_data,
+        utt_eval=False,
+        error_analysis=error,
+        word=word,
+        interval=False,
+        outputfilename=None
+    )
+    # the below does incremental and final output in one, also outputting the final outputs
+    # derivable from the incremental output, takes quite a while
+    if verbose:
+        for k, v in results.items():
+            print k, v
+    all_results = deepcopy(results)
+
+    return {'f1_<rm_word': all_results['f1_<rm_word'],
+            'f1_<rps_word': all_results['f1_<rps_word'],
+            'f1_<e_word': all_results['f1_<e_word']}
 
 
 def filter_line(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
