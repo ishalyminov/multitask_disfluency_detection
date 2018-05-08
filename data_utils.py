@@ -1,5 +1,5 @@
 import string
-from collections import defaultdict
+from collections import defaultdict, deque
 from operator import itemgetter
 import logging
 
@@ -18,11 +18,20 @@ def make_char_vocabulary():
     return vocab
 
 
-def make_vocabulary(in_lines, max_vocabulary_size, special_tokens=[PAD, UNK], frequency_threshold=3):
+def make_vocabulary(in_lines,
+                    max_vocabulary_size,
+                    special_tokens=[PAD, UNK],
+                    frequency_threshold=3,
+                    ngram_sizes=[1]):
     freqdict = defaultdict(lambda: 0)
+
     for line in in_lines:
+        ngram_windows = [deque([], maxlen=size) for size in ngram_sizes]
         for token in line:
-            freqdict[token] += 1
+            for window in ngram_windows:
+                window.append(token)
+                if len(window) == window.maxlen:
+                    freqdict[' '.join(window)] += 1
     vocab = sorted(freqdict.items(), key=itemgetter(1), reverse=True)
     vocab = filter(lambda x: frequency_threshold < x[1], vocab)
     logging.info('{} tokens ({}% of the vocabulary) were filtered due to the frequency threshold'

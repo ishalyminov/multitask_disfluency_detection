@@ -181,9 +181,6 @@ def train(in_model,
                                        y_train,
                                        config['batch_size'],
                                        sample_probabilities=sample_probs)
-    # Run the initializer
-    session.run(init)
-
     step, best_dev_f1_rm = 0, 0.0
     for batch_x, batch_y in batch_gen:
         step += 1
