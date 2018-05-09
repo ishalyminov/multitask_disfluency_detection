@@ -4,9 +4,8 @@
   "max_input_length": 5,
   "lr": 0.01,
   "batch_size": 32,
-  "steps_per_epoch": 1000,
-  "pretraining_epochs_number": 10,
   "epochs_number": 100,
+  "early_stopping_threshold": 10,
   "use_pos_tags": true,
   "class_weight": "proportional",
   "class_weight_smoothing_coef": 1.05

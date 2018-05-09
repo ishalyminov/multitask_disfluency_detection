@@ -181,17 +181,19 @@ def train(in_model,
           in_epochs_number,
           config,
           session,
+          class_weight=None,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
 
-    class_weight_vector = np.ones(y_train.shape[-1])
     tag_mapping = get_tag_mapping(label_vocab)
 
     X, y, logits = in_model
 
+    if class_weight is None:
+        class_weight = np.ones(y_train.shape[1])
     # Define loss and optimizer
-    loss_op = get_loss_function(logits, y, class_weight_vector)
+    loss_op = get_loss_function(logits, y, class_weight)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=config['lr'])
     train_op = optimizer.minimize(loss_op)
@@ -201,20 +203,29 @@ def train(in_model,
     batch_gen = batch_generator(X_train,
                                 y_train,
                                 config['batch_size'])
-    step, best_dev_loss = 0, 0.0
-    for epoch_counter in xrange(len(in_epochs_number)):
+    best_dev_loss = np.inf
+    epochs_without_improvement = 0 
+    for epoch_counter in xrange(in_epochs_number):
+        batch_gen = batch_generator(X_train,
+                                y_train,
+                                config['batch_size'])
         for batch_x, batch_y in batch_gen:
-            step += 1
             session.run(train_op, feed_dict={X: batch_x, y: batch_y})
 
         print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
-        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, session)
+        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight, session)
         print '; '.join(['dev {}: {:.3f}'.format(key, value)
                          for key, value in dev_eval.iteritems()])
         if dev_eval['loss'] < best_dev_loss:
             best_dev_loss = dev_eval['loss']
             saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
             print 'New best loss. Saving checkpoint'
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        if config['early_stopping_threshold'] < epochs_without_improvement:
+            print 'Early stopping after {} epochs'.format(epoch_counter)
+            break
 
     print 'Optimization Finished!'
 
@@ -504,14 +515,10 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
 
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-        lstm_cell_2 = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_2')
-
-        outputs_2, states_2 = tf.nn.dynamic_rnn(lstm_cell_2, emb, dtype=tf.float32)
-
         W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
         b = tf.Variable(tf.random_normal([in_classes_number]), name='b')
 
-    return X, y, tf.add(tf.matmul(outputs_2[:, -1, :], W), b)
+    return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
 
 
 def load(in_model_folder, in_session, existing_model=None):
