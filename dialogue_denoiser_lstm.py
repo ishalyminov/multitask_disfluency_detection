@@ -137,12 +137,18 @@ def dynamic_importance_sampling_random_batch_generator(data, labels, batch_size,
         batch = (np.take(data, batch_idx, axis=0), np.take(labels, batch_idx, axis=0))
         yield batch
 
+
 def batch_generator(X, y, batch_size):
     batch_start_idx = 0
+    total_batches_number = y.shape[0] / batch_size
+    batch_counter = 0
     while batch_start_idx < y.shape[0]:
+        if batch_counter % 1000 == 0:
+            print 'Processed {} out of {} batches'.format(batch_counter, total_batches_number)
         batch = (X[batch_start_idx: batch_start_idx + batch_size],
                  y[batch_start_idx: batch_start_idx + batch_size])
         batch_start_idx += batch_size
+        batch_counter += 1
         yield batch
 
 
@@ -172,52 +178,56 @@ def train(in_model,
           label_vocab,
           rev_label_vocab,
           in_model_folder,
+          in_epochs_number,
           config,
           session,
+          class_weight=None,
           **kwargs):
     X_train, y_train = train_data
     y_train_flattened = np.argmax(y_train, axis=-1)
-    class_weight = get_class_weight_proportional(y_train_flattened,
-                                                 smoothing_coef=config['class_weight_smoothing_coef'])
-    sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
-    scaler = MinMaxScaler(feature_range=(1, 10)) 
-    class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
-    # class_weight_vector = np.ones(y_train.shape[-1])
     tag_mapping = get_tag_mapping(label_vocab)
 
     X, y, logits = in_model
 
+    if class_weight is None:
+        class_weight = np.ones(y_train.shape[1])
     # Define loss and optimizer
-    loss_op = get_loss_function(logits, y, class_weight_vector)
+    loss_op = get_loss_function(logits, y, class_weight)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=config['lr'])
     train_op = optimizer.minimize(loss_op)
 
     saver = tf.train.Saver(tf.global_variables())
 
-    # sample_probs = sample_weights / np.sum(sample_weights)
-    batch_gen = dynamic_importance_sampling_random_batch_generator(X_train,
-                                                                   y_train,
-                                                                   config['batch_size'],
-                                                                   1.0,
-                                                                   1.1)
-    step, best_dev_f1_rm = 0, 0.0
-    for batch_x, batch_y in batch_gen:
-        step += 1
-        # Run optimization op (backprop)
-        session.run(train_op, feed_dict={X: batch_x, y: batch_y})
-        if step % config['steps_per_epoch'] == 0:
-            print 'Step {} eval'.format(step)
+    batch_gen = batch_generator(X_train,
+                                y_train,
+                                config['batch_size'])
+    best_dev_loss = np.inf
+    epochs_without_improvement = 0 
+    for epoch_counter in xrange(in_epochs_number):
+        batch_gen = batch_generator(X_train,
+                                y_train,
+                                config['batch_size'])
+        for batch_x, batch_y in batch_gen:
+            session.run(train_op, feed_dict={X: batch_x, y: batch_y})
 
-            _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight_vector, session)
-            print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                             for key, value in dev_eval.iteritems()])
-            if best_dev_f1_rm < dev_eval['f1_rm']:
-                best_dev_f1_rm = dev_eval['f1_rm']
-                saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
-                print 'New best f1_rm. Saving checkpoint'
-    print "Optimization Finished!"
+        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
+        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight, session)
+        print '; '.join(['dev {}: {:.3f}'.format(key, value)
+                         for key, value in dev_eval.iteritems()])
+        if dev_eval['loss'] < best_dev_loss:
+            best_dev_loss = dev_eval['loss']
+            saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
+            print 'New best loss. Saving checkpoint'
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        if config['early_stopping_threshold'] < epochs_without_improvement:
+            print 'Early stopping after {} epochs'.format(epoch_counter)
+            break
+
+    print 'Optimization Finished!'
 
 
 def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_session, batch_size=32):
@@ -505,14 +515,10 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
 
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-        lstm_cell_2 = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_2')
-
-        outputs_2, states_2 = tf.nn.dynamic_rnn(lstm_cell_2, emb, dtype=tf.float32)
-
         W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
         b = tf.Variable(tf.random_normal([in_classes_number]), name='b')
 
-    return X, y, tf.add(tf.matmul(outputs_2[:, -1, :], W), b)
+    return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
 
 
 def load(in_model_folder, in_session, existing_model=None):
