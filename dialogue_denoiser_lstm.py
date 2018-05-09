@@ -5,6 +5,7 @@ from collections import deque, defaultdict
 import sys
 from copy import deepcopy
 from operator import itemgetter
+from math import sin, pi
 
 import sklearn as sk
 import tensorflow as tf
@@ -117,6 +118,25 @@ def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
         yield batch
 
 
+def dynamic_importance_sampling_random_batch_generator(data, labels, batch_size, smoothing_coef_min, smoothing_coef_max):
+    labels_flat = np.argmax(labels, axis=-1)
+
+    sample_probs = np.ones(labels.shape[0])
+    data_idx = range(labels.shape[0])
+    x = 0.0
+    delta = smoothing_coef_min - smoothing_coef_max
+    batch_counter = 0
+    while True:
+        if batch_counter == 0:
+            class_weight = get_class_weight_proportional(labels_flat, smoothing_coef=smoothing_coef_min + delta * abs(sin(x)))
+            sample_weight = get_sample_weight(labels_flat, class_weight)
+            sample_probs = sample_weight / sum(sample_weight)
+            x = (x + 0.1) % (2 * pi)
+        batch_counter = (batch_counter + 1) % 1000
+        batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probs)
+        batch = (np.take(data, batch_idx, axis=0), np.take(labels, batch_idx, axis=0))
+        yield batch
+
 def batch_generator(X, y, batch_size):
     batch_start_idx = 0
     while batch_start_idx < y.shape[0]:
@@ -161,7 +181,7 @@ def train(in_model,
                                                  smoothing_coef=config['class_weight_smoothing_coef'])
     sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
-    scaler = MinMaxScaler(feature_range=(1, 2)) 
+    scaler = MinMaxScaler(feature_range=(1, 10)) 
     class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
     # class_weight_vector = np.ones(y_train.shape[-1])
     tag_mapping = get_tag_mapping(label_vocab)
@@ -176,11 +196,12 @@ def train(in_model,
 
     saver = tf.train.Saver(tf.global_variables())
 
-    sample_probs = sample_weights / np.sum(sample_weights)
-    batch_gen = random_batch_generator(X_train,
-                                       y_train,
-                                       config['batch_size'],
-                                       sample_probabilities=sample_probs)
+    # sample_probs = sample_weights / np.sum(sample_weights)
+    batch_gen = dynamic_importance_sampling_random_batch_generator(X_train,
+                                                                   y_train,
+                                                                   config['batch_size'],
+                                                                   1.0,
+                                                                   1.1)
     step, best_dev_f1_rm = 0, 0.0
     for batch_x, batch_y in batch_gen:
         step += 1
@@ -480,14 +501,18 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
         embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0), name='emb')
         emb = tf.nn.embedding_lookup(embeddings, X)
 
-        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm')
+        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_1')
 
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
+
+        lstm_cell_2 = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_2')
+
+        outputs_2, states_2 = tf.nn.dynamic_rnn(lstm_cell_2, emb, dtype=tf.float32)
 
         W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
         b = tf.Variable(tf.random_normal([in_classes_number]), name='b')
 
-    return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
+    return X, y, tf.add(tf.matmul(outputs_2[:, -1, :], W), b)
 
 
 def load(in_model_folder, in_session, existing_model=None):
