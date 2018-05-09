@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import os
 
 import pandas as pd
+import numpy as np
 import tensorflow as tf
 
 from config import read_config, DEFAULT_CONFIG_FILE
@@ -23,10 +24,7 @@ def configure_argument_parser():
     return parser
 
 
-def main(in_dataset_folder, in_model_folder, resume, in_config):
-    trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
-                                 pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
-                                 pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
+def init_model(trainset, in_model_folder, resume, in_config, in_session):
     model = None
     with tf.Session() as sess:
         if not resume:
@@ -48,23 +46,64 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
                                  in_config['max_input_length'],
                                  len(label_vocab))
             init = tf.global_variables_initializer()
-            sess.run(init)
-            save(in_config, vocab, char_vocab, label_vocab, in_model_folder, sess)
-        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess, existing_model=model)
+            in_session.run(init)
+            save(in_config, vocab, char_vocab, label_vocab, in_model_folder, in_session)
+        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
+                                                                    in_session,
+                                                                    existing_model=model)
+        return model, actual_config, vocab, char_vocab, label_vocab
+
+
+def filter_rms(in_X, in_y, in_rev_label_vocab):
+    labels = map(in_rev_label_vocab.get, in_y)
+    sample_index = filter(lambda x: x.startswith('<rm') or x.startswith('<rp'), labels)
+
+    X_result, y_result = np.take(in_X, sample_index, axis=0), np.take(in_y, sample_index, axis=0)
+    return X_result, y_result
+
+
+def main(in_dataset_folder, in_model_folder, resume, in_config):
+    trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
+                                 pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
+                                 pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
+    with tf.Session() as sess:
+        model, actual_config, vocab, char_vocab, label_vocab = init_model(trainset,
+                                                                          in_model_folder,
+                                                                          resume,
+                                                                          in_config,
+                                                                          sess)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-        X_train, y_train = make_dataset(trainset, vocab, label_vocab, actual_config)
-        X_dev, y_dev = make_dataset(devset, vocab, label_vocab, actual_config)
+        X_train_full, y_train_full = make_dataset(trainset, vocab, label_vocab, actual_config)
+        X_dev_full, y_dev_full = make_dataset(devset, vocab, label_vocab, actual_config)
         X_test, y_test = make_dataset(testset, vocab, label_vocab, actual_config)
 
+        print 'Stage 1: pre-training the model on full data'
         train(model,
-              (X_train, y_train),
-              (X_dev, y_dev),
+              (X_train_full, y_train_full),
+              (X_dev_full, y_dev_full),
               (X_test, y_test),
               vocab,
               label_vocab,
               rev_label_vocab,
               in_model_folder,
+              actual_config['pretraining_epochs_number'],
+              actual_config,
+              sess)
+
+
+        X_train_rm, y_train_rm = filter_rms(X_train_full, y_train_full, rev_label_vocab)
+
+        print 'Stage 2: training the model on disfluencies'
+        train(model,
+              (X_train_rm, y_train_rm),
+              (X_dev_full, y_dev_full),
+              (X_test, y_test),
+              vocab,
+              label_vocab,
+              rev_label_vocab,
+              in_model_folder,
+              actual_config['epochs_number'],
               actual_config,
               sess)
 
