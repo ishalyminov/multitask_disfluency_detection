@@ -4,11 +4,13 @@
   "batch_size": 32,
   "epochs_number": 999999999,
   "lr": 0.01,
-  "lr_decay": 0.96,
-  "l2_coef": 0.0001,
+  "lr_decay": 0.99,
+  "l2_coef": 0.001,
   "early_stopping_threshold": 999999,
   "max_vocabulary_size": 20000,
   "max_input_length": 5,
   "class_weight_smoothing_coef": 1.05,
-  "class_weight": "proportional"
+  "class_weight": "proportional",
+  "tasks": ["tag", "lm"],
+  "task_weights": [1.0, 0.1]
 }

@@ -8,7 +8,7 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 
 from config import read_config, DEFAULT_CONFIG_FILE
-from data_utils import make_vocabulary, make_char_vocabulary
+from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset
 from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     save,
@@ -67,32 +67,33 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
                                                                           resume,
                                                                           in_config,
                                                                           sess)
+        rev_vocab = {word_id: word
+                     for word, word_id in vocab.iteritems()}
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
-        X_train, y_train = make_dataset(trainset, vocab, label_vocab, actual_config)
-        X_dev, y_dev = make_dataset(devset, vocab, label_vocab, actual_config)
-        X_test, y_test = make_dataset(testset, vocab, label_vocab, actual_config)
+        X_train, ys_train = make_multitask_dataset(trainset, vocab, label_vocab, actual_config)
+        X_dev, ys_dev = make_multitask_dataset(devset, vocab, label_vocab, actual_config)
+        X_test, ys_test = make_multitask_dataset(testset, vocab, label_vocab, actual_config)
 
-        y_train_flattened = np.argmax(y_train, axis=-1)
+        y_train_flattened = np.argmax(ys_train[0], axis=-1)
         class_weight = get_class_weight_proportional(y_train_flattened,
                                                      smoothing_coef=actual_config['class_weight_smoothing_coef'])
-        sample_weights = get_sample_weight(y_train_flattened, class_weight)
 
         scaler = MinMaxScaler(feature_range=(1, 5))
         class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
 
+
         train(model,
-              (X_train, y_train),
-              (X_dev, y_dev),
-              (X_test, y_test),
-              vocab,
-              label_vocab,
-              rev_label_vocab,
+              (X_train, ys_train),
+              (X_dev, ys_dev),
+              (X_test, ys_test),
+              [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
               in_model_folder,
               actual_config['epochs_number'],
               actual_config,
               sess,
-              class_weight=class_weight_vector)
+              class_weights=class_weight_vector,
+              task_weights=config['task_weights'])
 
 
 if __name__ == '__main__':

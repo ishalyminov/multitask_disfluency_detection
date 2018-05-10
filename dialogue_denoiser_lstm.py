@@ -1,21 +1,16 @@
 import json
 import random
 import os
-from collections import deque, defaultdict
 import sys
 from copy import deepcopy
-from operator import itemgetter
-from math import sin, pi
 
 import sklearn as sk
 import tensorflow as tf
 from tensorflow.contrib import rnn
 import numpy as np
 import pandas as pd
-from sklearn.utils.class_weight import compute_class_weight
-from sklearn.preprocessing import MinMaxScaler
 
-from data_utils import vectorize_sequences, pad_sequences
+from training_utils import get_loss_function, batch_generator
 
 THIS_FILE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
@@ -49,153 +44,34 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
 DEFAULT_HELDOUT_DATASET = DATA_DIR + '/swbd_disf_heldout_data_timings.csv'
 
 
-def get_sample_weight(in_labels, in_class_weight_map):
-    sample_weight = np.vectorize(in_class_weight_map.get)(in_labels)
-    return sample_weight
-
-
-def get_class_weight_sqrt(in_labels):
-    label_freqs = defaultdict(lambda: 0)
-    for label in in_labels:
-        label_freqs[label] += 1.0
-    label_weights = {label: 1.0 / np.power(freq, 1 / 3.) for label, freq in label_freqs.iteritems()}
-    return label_weights
-
-
-def get_class_weight_proportional(in_labels, smoothing_coef=1.0):
-    label_freqs = defaultdict(lambda: 0)
-    for label in in_labels:
-        label_freqs[label] += 1.0
-    label_weights = {label: 1.0 / np.power(float(freq), 1.0 / smoothing_coef)
-                     for label, freq in label_freqs.iteritems()}
-    return label_weights
-
-
-def get_class_weight_auto(in_labels):
-    class_weight = compute_class_weight('balanced', np.unique(in_labels), in_labels)
-    class_weight_map = {class_id: weight
-                        for class_id, weight in zip(np.unique(in_labels), class_weight)}
-
-    return class_weight_map
-
-
-def make_data_points(in_tokens, in_tags, in_max_input_length):
-    contexts, tags = [], []
-    context = deque([], maxlen=in_max_input_length)
-    for token, tag in zip(in_tokens, in_tags):
-        context.append(token)
-        contexts.append(list(context))
-        tags.append(tag)
-    return contexts, tags
-
-
-def make_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
-    contexts, tags = [], []
-    for idx, row in in_dataset.iterrows():
-        if in_config['use_pos_tags']:
-            utterance = ['{}_{}'.format(token, pos)
-                         for token, pos in zip(row['utterance'], row['pos'])]
-        else:
-            utterance = row['utterance']
-        current_contexts, current_tags = make_data_points(utterance,
-                                                          row['tags'],
-                                                          in_config['max_input_length'])
-        contexts += current_contexts
-        tags += current_tags
-    tokens_vectorized = vectorize_sequences(contexts, in_vocab)
-    tokens_padded = pad_sequences(tokens_vectorized, in_config['max_input_length'])
-
-    labels = vectorize_sequences([tags], in_label_vocab)
-    y = tf.keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab)) 
-    return tokens_padded, y
-
-
-def random_batch_generator(data, labels, batch_size, sample_probabilities=None):
-    data_idx = range(labels.shape[0])
-    while True:
-        batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probabilities)
-        batch = (np.take(data, batch_idx, axis=0), np.take(labels, batch_idx, axis=0))
-        yield batch
-
-
-def dynamic_importance_sampling_random_batch_generator(data, labels, batch_size, smoothing_coef_min, smoothing_coef_max):
-    labels_flat = np.argmax(labels, axis=-1)
-
-    sample_probs = np.ones(labels.shape[0])
-    data_idx = range(labels.shape[0])
-    x = 0.0
-    delta = smoothing_coef_min - smoothing_coef_max
-    batch_counter = 0
-    while True:
-        if batch_counter == 0:
-            class_weight = get_class_weight_proportional(labels_flat, smoothing_coef=smoothing_coef_min + delta * abs(sin(x)))
-            sample_weight = get_sample_weight(labels_flat, class_weight)
-            sample_probs = sample_weight / sum(sample_weight)
-            x = (x + 0.1) % (2 * pi)
-        batch_counter = (batch_counter + 1) % 1000
-        batch_idx = np.random.choice(data_idx, size=batch_size, p=sample_probs)
-        batch = (np.take(data, batch_idx, axis=0), np.take(labels, batch_idx, axis=0))
-        yield batch
-
-
-def batch_generator(X, y, batch_size):
-    batch_start_idx = 0
-    total_batches_number = y.shape[0] / batch_size
-    batch_counter = 0
-    while batch_start_idx < y.shape[0]:
-        if batch_counter % 1000 == 0:
-            print 'Processed {} out of {} batches'.format(batch_counter, total_batches_number)
-        batch = (X[batch_start_idx: batch_start_idx + batch_size],
-                 y[batch_start_idx: batch_start_idx + batch_size])
-        batch_start_idx += batch_size
-        batch_counter += 1
-        yield batch
-
-
-def get_loss_function(in_logits, in_labels, in_class_weights, l2_coef=0.00):
-    eps = tf.constant(value=np.finfo(np.float32).eps, dtype=tf.float32)
-    class_weights = tf.constant(value=in_class_weights, dtype=tf.float32)
-
-    logits = in_logits + eps
-    softmax = tf.nn.softmax(logits)
-
-    loss_xent = -tf.reduce_sum(tf.multiply(in_labels * tf.log(softmax + eps), class_weights),
-                               reduction_indices=[1])
-    # loss_xent = tf.nn.softmax_cross_entropy_with_logits_v2(labels=in_labels, logits=in_logits)
-    # Add regularization loss as well
-    loss_l2 = tf.reduce_sum([tf.nn.l2_loss(v)
-                             for v in tf.trainable_variables()
-                             if 'bias' not in v.name]) * l2_coef
-
-    cost = tf.reduce_mean(tf.add(loss_xent, loss_l2), name='cost')
-
-    return cost
-
-
 def train(in_model,
           train_data,
           dev_data,
           test_data,
-          vocab,
-          label_vocab,
-          rev_label_vocab,
+          in_task_vocabs,
           in_model_folder,
           in_epochs_number,
           config,
           session,
-          class_weight=None,
+          class_weights=None,
+          task_weights=None,
           **kwargs):
-    X_train, y_train = train_data
-    y_train_flattened = np.argmax(y_train, axis=-1)
+    X_train, y_train_for_tasks = train_data
 
-    tag_mapping = get_tag_mapping(label_vocab)
+    tag_mapping = get_tag_mapping(in_task_vocabs[0])
 
-    X, y, logits = in_model
+    X, ys_for_tasks, logits_for_tasks = in_model
 
-    if class_weight is None:
-        class_weight = np.ones(y_train.shape[1])
+    if class_weights is None:
+        class_weights = [np.ones(y_train_i.shape[1]) for y_train_i in y_train_for_tasks]
+    if task_weights is None:
+        task_weights = np.ones(len(y_train_for_tasks))
     # Define loss and optimizer
-    loss_op = get_loss_function(logits, y, class_weight, l2_coef=config['l2_coef'])
+    loss_op = get_loss_function(logits_for_tasks,
+                                ys_for_tasks,
+                                class_weights,
+                                l2_coef=config['l2_coef'],
+                                task_weights=task_weights)
 
     starting_lr = config['lr']
     lr_decay = config['lr_decay']
@@ -211,20 +87,23 @@ def train(in_model,
 
     saver = tf.train.Saver(tf.global_variables())
 
-    batch_gen = batch_generator(X_train,
-                                y_train,
-                                config['batch_size'])
     best_dev_loss = np.inf
     epochs_without_improvement = 0
     for epoch_counter in xrange(in_epochs_number):
         batch_gen = batch_generator(X_train,
-                                y_train,
-                                config['batch_size'])
+                                    y_train_for_tasks,
+                                    config['batch_size'])
         for batch_x, batch_y in batch_gen:
-            session.run(train_op, feed_dict={X: batch_x, y: batch_y})
+            session.run(train_op, feed_dict={X: batch_x, ys_for_tasks: batch_y})
 
         print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
-        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight, session)
+        _, dev_eval = evaluate(in_model,
+                               dev_data,
+                               tag_mapping,
+                               class_weights,
+                               task_weights,
+                               config,
+                               session)
         print '; '.join(['dev {}: {:.3f}'.format(key, value)
                          for key, value in dev_eval.iteritems()])
         if dev_eval['loss'] < best_dev_loss:
@@ -241,36 +120,52 @@ def train(in_model,
     print 'Optimization Finished!'
 
 
-def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_session, batch_size=32):
-    X_test, y_test = in_dataset
-    X, y, logits = in_model
+def evaluate(in_model,
+             in_dataset,
+             in_tag_map,
+             in_class_weights,
+             in_task_weights,
+             in_config,
+             in_session,
+             batch_size=32):
+    X_test, y_test_for_tasks = in_dataset
+    X, ys_for_tasks, logits_for_tasks = in_model
 
     # Evaluate model (with test logits, for dropout to be disabled)
-    loss_op = get_loss_function(logits, y, in_class_weight)
-    y_pred_op = tf.argmax(logits, 1)
-    y_true_op = tf.argmax(y, 1)
+    loss_op = get_loss_function(logits_for_tasks,
+                                ys_for_tasks,
+                                in_class_weights,
+                                l2_coef=in_config['l2_coef'],
+                                task_weights=in_task_weights)
+
+    y_pred_op = [tf.argmax(logits_i, 1) for logits_i in logits_for_tasks]
+    y_true_op = [tf.argmax(y_i, 1) for y_i in y_test_for_tasks]
+
     correct_pred = tf.equal(y_pred_op, y_true_op)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
     # Start training
-    batch_gen = batch_generator(X_test, y_test, batch_size)
+    batch_gen = batch_generator(X_test, y_test_for_tasks, batch_size)
 
     batch_losses, batch_accuracies = [], []
-    y_pred = np.zeros(y_test.shape[0])
+    y_pred_main_task = np.zeros(X_test.shape[0])
     for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
         y_pred_batch, loss_batch, acc_batch = in_session.run([y_pred_op, loss_op, accuracy],
-                                                              feed_dict={X: batch_x, y: batch_y})
-        y_pred[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch
+                                                              feed_dict={X: batch_x,
+                                                                         ys_for_tasks: batch_y})
+        y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
         batch_losses.append(loss_batch)
         batch_accuracies.append(acc_batch)
 
+    y_gold_main_task = np.argmax(y_test_for_tasks[0], -1)
     result_map = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
     for class_name, class_ids in in_tag_map.iteritems():
-        result_map['f1_' + class_name] = sk.metrics.f1_score(y_true=np.argmax(y_test, -1),
-                                                             y_pred=y_pred,
+        result_map['f1_' + class_name] = sk.metrics.f1_score(y_true=y_gold_main_task
+                                                             ,
+                                                             y_pred=y_pred_main_task,
                                                              labels=class_ids,
                                                              average='micro')
-    return y_pred, result_map
+    return y_pred_main_task, result_map
 
 
 def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):
@@ -518,18 +413,24 @@ def predict_single_tag(in_line, in_model, in_vocab, in_label_vocab, in_rev_label
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
     with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
         X = tf.placeholder(tf.int32, [None, in_max_input_length], name='X')
-        y = tf.placeholder(tf.float32, [None, in_classes_number], name='y')
-        embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0), name='emb')
+        y_tag = tf.placeholder(tf.float32, [None, in_classes_number], name='y_tag')
+        y_word = tf.placeholder(tf.float32, [None, in_classes_number], name='y_word')
+        embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0),
+                                 name='emb')
         emb = tf.nn.embedding_lookup(embeddings, X)
 
         lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_1')
-
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-        W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
-        b = tf.Variable(tf.random_normal([in_classes_number]), name='bias')
+        W_tag = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W_tag')
+        b_tag = tf.Variable(tf.random_normal([in_classes_number]), name='bias_tag')
 
-    return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
+        W_word = tf.Variable(tf.random_normal([in_cell_size, in_vocab_size]), name='W_word')
+        b_word = tf.Variable(tf.random_normal([in_classes_number]), name='bias_word')
+
+        tag_output = tf.add(tf.matmul(outputs[:, -1, :], W_tag), b_tag)
+        word_output = tf.add(tf.matmul(outputs[:, -1, :], W_word), b_word)
+    return X, [y_tag, y_word], [tag_output, word_output]
 
 
 def load(in_model_folder, in_session, existing_model=None):
