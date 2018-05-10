@@ -163,7 +163,9 @@ def get_loss_function(in_logits, in_labels, in_class_weights, l2_coef=0.00):
                                reduction_indices=[1])
     # loss_xent = tf.nn.softmax_cross_entropy_with_logits_v2(labels=in_labels, logits=in_logits)
     # Add regularization loss as well
-    loss_l2 = tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()]) * l2_coef
+    loss_l2 = tf.reduce_sum([tf.nn.l2_loss(v)
+                             for v in tf.trainable_variables()
+                             if 'bias' not in v.name]) * l2_coef
 
     cost = tf.reduce_mean(tf.add(loss_xent, loss_l2), name='cost')
 
@@ -193,10 +195,19 @@ def train(in_model,
     if class_weight is None:
         class_weight = np.ones(y_train.shape[1])
     # Define loss and optimizer
-    loss_op = get_loss_function(logits, y, class_weight)
+    loss_op = get_loss_function(logits, y, class_weight, l2_coef=config['l2_coef'])
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=config['lr'])
-    train_op = optimizer.minimize(loss_op)
+    starting_lr = config['lr']
+    lr_decay = config['lr_decay']
+    global_step = tf.Variable(0, trainable=False)
+    session.run(tf.assign(global_step, 0))
+    learning_rate = tf.train.exponential_decay(starting_lr,
+                                               global_step,
+                                               100000,
+                                               lr_decay,
+                                               staircase=True)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    train_op = optimizer.minimize(loss_op, global_step)
 
     saver = tf.train.Saver(tf.global_variables())
 
@@ -204,7 +215,7 @@ def train(in_model,
                                 y_train,
                                 config['batch_size'])
     best_dev_loss = np.inf
-    epochs_without_improvement = 0 
+    epochs_without_improvement = 0
     for epoch_counter in xrange(in_epochs_number):
         batch_gen = batch_generator(X_train,
                                 y_train,
@@ -516,7 +527,7 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_nu
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
         W = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W')
-        b = tf.Variable(tf.random_normal([in_classes_number]), name='b')
+        b = tf.Variable(tf.random_normal([in_classes_number]), name='bias')
 
     return X, y, tf.add(tf.matmul(outputs[:, -1, :], W), b)
 
