@@ -1,13 +1,14 @@
 {
-  "max_vocabulary_size": 15000,
-  "embedding_size": 128,
-  "max_input_length": 5,
-  "lr": 0.01,
-  "l2_coef": 0.0001,
-  "batch_size": 32,
-  "epochs_number": 100,
-  "early_stopping_threshold": 10,
+  "embedding_size": 64,
   "use_pos_tags": true,
-  "class_weight": "proportional",
-  "class_weight_smoothing_coef": 1.01
+  "batch_size": 32,
+  "epochs_number": 999999999,
+  "lr": 0.01,
+  "lr_decay": 0.96,
+  "l2_coef": 0.0001,
+  "early_stopping_threshold": 999999,
+  "max_vocabulary_size": 20000,
+  "max_input_length": 5,
+  "class_weight_smoothing_coef": 1.05,
+  "class_weight": "proportional"
 }
