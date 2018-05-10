@@ -220,13 +220,16 @@ def train(in_model,
         batch_gen = batch_generator(X_train,
                                 y_train,
                                 config['batch_size'])
+        train_batch_losses = []
         for batch_x, batch_y in batch_gen:
-            session.run(train_op, feed_dict={X: batch_x, y: batch_y})
-
+            _, train_batch_loss = session.run([train_op, loss_op],
+                                              feed_dict={X: batch_x, y: batch_y})
+            train_batch_losses.append(train_batch_loss)
         print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
-        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight, session)
+        print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
+        _, dev_eval = evaluate(in_model, dev_data, tag_mapping, class_weight, config, session)
         print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                         for key, value in dev_eval.iteritems()])
+                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate))
         if dev_eval['loss'] < best_dev_loss:
             best_dev_loss = dev_eval['loss']
             saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
@@ -241,12 +244,12 @@ def train(in_model,
     print 'Optimization Finished!'
 
 
-def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_session, batch_size=32):
+def evaluate(in_model, in_dataset, in_tag_map, in_class_weight, in_config, in_session, batch_size=32):
     X_test, y_test = in_dataset
     X, y, logits = in_model
 
     # Evaluate model (with test logits, for dropout to be disabled)
-    loss_op = get_loss_function(logits, y, in_class_weight)
+    loss_op = get_loss_function(logits, y, in_class_weight, l2_coef=in_config['l2_coef'])
     y_pred_op = tf.argmax(logits, 1)
     y_true_op = tf.argmax(y, 1)
     correct_pred = tf.equal(y_pred_op, y_true_op)
