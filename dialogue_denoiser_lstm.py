@@ -88,7 +88,14 @@ def train(in_model,
 
     saver = tf.train.Saver(tf.global_variables())
 
-    best_dev_loss = np.inf
+    _, dev_eval = evaluate(in_model,
+                               dev_data,
+                               tag_mapping,
+                               class_weights,
+                               task_weights,
+                               config,
+                               session)
+    best_dev_f1_rm = dev_eval['f1_rm']
     epochs_without_improvement = 0
     for epoch_counter in xrange(in_epochs_number):
         batch_gen = batch_generator(X_train,
@@ -109,9 +116,9 @@ def train(in_model,
         print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
         print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
         print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                         for key, value in dev_eval.iteritems()])
-        if dev_eval['loss'] < best_dev_loss:
-            best_dev_loss = dev_eval['loss']
+                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate))
+        if best_dev_f1_rm < dev_eval['f1_rm']:
+            best_dev_f1_rm = dev_eval['f1_rm']
             saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
             print 'New best loss. Saving checkpoint'
             epochs_without_improvement = 0
