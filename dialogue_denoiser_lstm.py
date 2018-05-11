@@ -10,6 +10,7 @@ from tensorflow.contrib import rnn
 import numpy as np
 import pandas as pd
 
+from data_utils import make_multitask_dataset
 from training_utils import get_loss_function, batch_generator
 
 THIS_FILE_DIR = os.path.dirname(__file__)
@@ -170,29 +171,28 @@ def evaluate(in_model,
     return y_pred_main_task, result_map
 
 
-def predict(in_model, in_dataset, in_rev_label_vocab, in_session, batch_size=32):
-    X_test, y_test = in_dataset
-    X, y, logits = in_model
+def predict(in_model, in_dataset, in_vocabs_for_tasks, in_session, batch_size=32):
+    X_test, y_test_for_tasks = in_dataset
+    X, ys_for_tasks, logits_for_tasks = in_model
 
-    y_pred_op = tf.argmax(logits, 1)
+    y_pred_op = [tf.argmax(logits_i, 1) for logits_i in logits_for_tasks]
 
     # Start training
-    batch_gen = batch_generator(X_test, y_test, batch_size)
+    batch_gen = batch_generator(X_test, y_test_for_tasks, batch_size)
 
-    y_pred = np.zeros(y_test.shape[0])
-    for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
-        y_pred_batch = in_session.run([y_pred_op],
+    y_pred_main_task = np.zeros(X_test.shape[0])
+    for batch_idx, (batch_x, batch_ys) in enumerate(batch_gen):
+        y_pred_batch = in_session.run(y_pred_op,
                                        feed_dict={X: batch_x})
-        y_pred[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
+        y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
 
-    predictions = map(in_rev_label_vocab.get, y_pred) 
+    rev_label_vocab_main_task = in_vocabs_for_tasks[0][2]
+    predictions = map(rev_label_vocab_main_task.get, y_pred_main_task) 
     return predictions
 
 
 def predict_increco_file(in_model,
-                         in_vocab,
-                         in_label_vocab,
-                         in_rev_label_vocab,
+                         vocabs_for_tasks,
                          source_file_path,
                          in_config,
                          in_session,
@@ -273,8 +273,14 @@ def predict_increco_file(in_model,
                                                                                    representation="disf1")
                                      for tags_i, words_i in zip(tags, utterances)],
                             'pos': pos})
-    X, y = make_dataset(dataset, in_vocab, in_label_vocab, in_config)
-    predictions = predict(in_model, (X, y), in_rev_label_vocab, in_session)
+    X, ys_for_tasks = make_multitask_dataset(dataset,
+                                             vocabs_for_tasks[0][0],
+                                             vocabs_for_tasks[0][1],
+                                             in_config)
+    predictions = predict(in_model,
+                          (X, ys_for_tasks),
+                          vocabs_for_tasks,
+                          in_session)
     predictions_eval = []
     global_word_index = 0
     broken_sequences_number = 0
@@ -325,18 +331,14 @@ def predict_increco_file(in_model,
 
 
 def eval_deep_disfluency(in_model,
-                         in_vocab,
-                         in_label_vocab,
-                         in_rev_label_vocab,
+                         in_vocabs_for_tasks,
                          source_file_path,
                          in_config,
                          in_session,
                          verbose=True):
     increco_file = 'swbd_disf_heldout_data_output_increco.text'
     predict_increco_file(in_model,
-                         in_vocab,
-                         in_label_vocab,
-                         in_rev_label_vocab,
+                         in_vocabs_for_tasks,
                          source_file_path,
                          in_config,
                          in_session,

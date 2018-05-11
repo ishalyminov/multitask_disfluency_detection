@@ -32,12 +32,12 @@ def main(in_dataset_file, in_model_folder):
     with tf.Session() as sess:
         model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
                                                                     sess)
+        rev_vocab = {word_id: word
+                     for word, word_id in vocab.iteritems()} 
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
         for key, value in eval_deep_disfluency(model,
-                                               vocab,
-                                               label_vocab,
-                                               rev_label_vocab,
+                                               [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
                                                in_dataset_file,
                                                actual_config,
                                                sess).iteritems():
