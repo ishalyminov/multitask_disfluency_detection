@@ -30,7 +30,6 @@ def configure_argument_parser():
 
 def main(in_dataset_file, in_model_folder):
     with tf.Session() as sess:
-        import pdb; pdb.set_trace()
         model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
                                                                     sess)
         rev_label_vocab = {label_id: label
@@ -40,7 +39,7 @@ def main(in_dataset_file, in_model_folder):
                                                label_vocab,
                                                rev_label_vocab,
                                                in_dataset_file,
-                                               config,
+                                               actual_config,
                                                sess).iteritems():
             print '{}:\t{}'.format(key, value)
 

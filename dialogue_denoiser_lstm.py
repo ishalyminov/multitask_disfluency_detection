@@ -445,11 +445,19 @@ def load(in_model_folder, in_session, existing_model=None):
         label_vocab = json.load(label_vocab_in)
     with open(os.path.join(in_model_folder, CONFIG_NAME)) as config_in:
         config = json.load(config_in)
+    task_output_dimensions = []
+    for task in config['tasks']:
+        if task == 'tag':
+            task_output_dimensions.append(len(label_vocab))
+        elif task == 'lm':
+            task_output_dimensions.append(len(vocab))
+        else:
+            raise NotImplementedError
     if not existing_model:
         model = create_model(len(vocab),
                              config['embedding_size'],
                              config['max_input_length'],
-                             len(label_vocab))
+                             task_output_dimensions)
     else:
         model = existing_model
     loader = tf.train.Saver()
