@@ -396,6 +396,143 @@ def eval_deep_disfluency(in_model,
             'f1_<e_word': all_results['f1_<e_word']}
 
 
+def predict_babi_file(in_model,
+                      vocabs_for_tasks,
+                      source_file_path,
+                      in_config,
+                      in_session,
+                      target_file_path=None):
+    if target_file_path:
+        target_file = open(target_file_path, "w")
+    dataset = pd.read_json(source_file_path)
+
+    # eval tags --> RNN tags
+    dataset = pd.DataFrame({'utterance': dataset['utterance'],
+                            'tags': [convert_from_eval_tags_to_inc_disfluency_tags(tags_i,
+                                                                                   words_i,
+                                                                                   representation="disf1")
+                                     for tags_i, words_i in zip(dataset['tags'], dataset['utterance'])],
+                            'pos': dataset['pos']})
+    X, ys_for_tasks = make_multitask_dataset(dataset,
+                                             vocabs_for_tasks[0][0],
+                                             vocabs_for_tasks[0][1],
+                                             in_config)
+    predictions = predict(in_model,
+                          (X, ys_for_tasks),
+                          vocabs_for_tasks,
+                          in_session)
+    predictions_eval = []
+    global_word_index = 0
+    broken_sequences_number = 0
+    # RNN tags --> eval tags
+    for utterance in dataset['utterance']:
+        current_tags = predictions[global_word_index: global_word_index + len(utterance)]
+        try:
+            current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(current_tags,
+                                                                              utterance,
+                                                                              representation="disf1")
+        except:
+            current_tags_eval = current_tags
+            broken_sequences_number += 1
+        predictions_eval += current_tags_eval
+        global_word_index += len(utterance)
+    print '#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number,
+                                                                                 dataset.shape[0])
+
+    predictions_eval_iter = iter(predictions_eval)
+    for speaker, speaker_data in dataset.iterrows():
+        if target_file_path:
+            target_file.write("Speaker: " + str(speaker) + "\n\n")
+        timing_data, lex_data, pos_data, labels = ([0.33] * len(speaker_data['utterance']),  # fake timing
+                                                   speaker_data['utterance'],
+                                                   speaker_data['pos'],
+                                                   speaker_data['tags'])
+
+        for i in range(0, len(timing_data)):
+            # print i, timing_data[i]
+            _, end = timing_data[i]
+            word = lex_data[i]
+            pos = pos_data[i]
+            predicted_tags = [next(predictions_eval_iter)]
+            current_time = end
+            if target_file_path:
+                target_file.write("Time: " + str(current_time) + "\n")
+                new_words = lex_data[i - (len(predicted_tags) - 1):i + 1]
+                new_pos = pos_data[i - (len(predicted_tags) - 1):i + 1]
+                new_timings = timing_data[i - (len(predicted_tags) - 1):i + 1]
+                for t, w, p, tag in zip(new_timings,
+                                        new_words,
+                                        new_pos,
+                                        predicted_tags):
+                    target_file.write("\t".join([str(t[0]),
+                                                 str(t[1]),
+                                                 w,
+                                                 p,
+                                                 tag]))
+                    target_file.write("\n")
+                target_file.write("\n")
+        target_file.write("\n")
+
+
+def eval_babi(in_model,
+              in_vocabs_for_tasks,
+              source_file_path,
+              in_config,
+              in_session,
+              verbose=True):
+    increco_file = 'swbd_disf_heldout_data_output_increco.text'
+    predict_babi_file(in_model,
+                      in_vocabs_for_tasks,
+                      source_file_path,
+                      in_config,
+                      in_session,
+                      target_file_path=increco_file)
+    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    gold_data = {}  # map from the file name to the data
+    for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
+        # if "asr" in division and not dialogue[:4] in good_asr: continue
+        gold_data[dialogue] = (a, b, c, d)
+    final_output_name = increco_file.replace("_increco", "_final")
+    incremental_output_disfluency_eval_from_file(increco_file,
+                                                 gold_data,
+                                                 utt_eval=True,
+                                                 error_analysis=True,
+                                                 word=True,
+                                                 interval=False,
+                                                 outputfilename=final_output_name)
+    # hyp_dir = experiment_dir
+    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    gold_data = {}  # map from the file name to the data
+    for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
+        # if "asr" in division and not dialogue[:4] in good_asr: continue
+        d = rename_all_repairs_in_line_with_index(list(d))
+        gold_data[dialogue] = (a, b, c, d)
+
+    # the below does just the final output evaluation, assuming a final output file, faster
+    hyp_file = "swbd_disf_heldout_data_output_final.text"
+    word = True  # world-level analyses
+    error = True  # get an error analysis
+    results, speaker_rate_dict, error_analysis = final_output_disfluency_eval_from_file(
+        hyp_file,
+        gold_data,
+        utt_eval=False,
+        error_analysis=error,
+        word=word,
+        interval=False,
+        outputfilename=None
+    )
+    # the below does incremental and final output in one, also outputting the final outputs
+    # derivable from the incremental output, takes quite a while
+    if verbose:
+        for k, v in results.items():
+            print k, v
+    all_results = deepcopy(results)
+
+    return {'f1_<rm_word': all_results['f1_<rm_word'],
+            'f1_<rps_word': all_results['f1_<rps_word'],
+            'f1_<e_word': all_results['f1_<e_word']}
+
+
 def filter_line(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
     tokens = in_line.lower().split()
     dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
