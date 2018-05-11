@@ -30,7 +30,9 @@ def configure_argument_parser():
 
 def main(in_dataset_file, in_model_folder):
     with tf.Session() as sess:
-        model, config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
+        import pdb; pdb.set_trace()
+        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
+                                                                    sess)
         rev_label_vocab = {label_id: label
                            for label, label_id in label_vocab.iteritems()}
         for key, value in eval_deep_disfluency(model,

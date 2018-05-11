@@ -2,6 +2,7 @@ import string
 from collections import defaultdict, deque
 from operator import itemgetter
 import logging
+from itertools import chain
 
 import tensorflow as tf
 
@@ -36,7 +37,7 @@ def make_vocabulary(in_lines,
     vocab = filter(lambda x: frequency_threshold < x[1], vocab)
     logging.info('{} tokens ({}% of the vocabulary) were filtered due to the frequency threshold'
                  .format(len(freqdict) - len(vocab), 100.0 * len(vocab) / float(len(freqdict))))
-    rev_vocab = (special_tokens + map(itemgetter(0), vocab))[:max_vocabulary_size]
+    rev_vocab = (list(special_tokens) + map(itemgetter(0), vocab))[:max_vocabulary_size]
     vocab = {word: idx for idx, word in enumerate(rev_vocab)}
     return vocab, rev_vocab
 
@@ -65,13 +66,14 @@ def create_contexts(in_tokens, in_max_input_length):
 
 
 def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
-    contexts = []
+    utterances, contexts = [], []
     for idx, row in in_dataset.iterrows():
         if in_config['use_pos_tags']:
             utterance = ['{}_{}'.format(token, pos)
                          for token, pos in zip(row['utterance'], row['pos'])]
         else:
             utterance = row['utterance']
+        utterances.append(utterance)
         current_contexts = create_contexts(utterance,
                                            in_config['max_input_length'])
         contexts += current_contexts
@@ -80,13 +82,15 @@ def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
 
     ys_for_tasks = []
     for task in in_config['tasks']:
-        if task == 'tags':
+        if task == 'tag':
             labels = vectorize_sequences(in_dataset['tags'], in_label_vocab)
-            y_i = tf.keras.utils.to_categorical(labels[0], num_classes=len(in_label_vocab))
+            labels = list(chain(*labels))
+            y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
         elif task == 'lm':
-            label_sequences = [row['utterance'][1:] + [PAD] for _, row in in_dataset.iterrows()]
+            label_sequences = [utterance[1:] + [PAD] for utterance in utterances]
             labels = vectorize_sequences(label_sequences, in_vocab)
-            y_i = tf.keras.utils.to_categorical(labels[0], num_classes=len(in_vocab))
+            labels = list(chain(*labels))
+            y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_vocab))
         else:
             raise NotImplementedError
         ys_for_tasks.append(y_i)

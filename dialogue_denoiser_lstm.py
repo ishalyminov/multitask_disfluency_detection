@@ -58,7 +58,7 @@ def train(in_model,
           **kwargs):
     X_train, y_train_for_tasks = train_data
 
-    tag_mapping = get_tag_mapping(in_task_vocabs[0])
+    tag_mapping = get_tag_mapping(in_task_vocabs[0][1])
 
     X, ys_for_tasks, logits_for_tasks = in_model
 
@@ -93,10 +93,11 @@ def train(in_model,
         batch_gen = batch_generator(X_train,
                                     y_train_for_tasks,
                                     config['batch_size'])
+        train_batch_losses = []
         for batch_x, batch_y in batch_gen:
-            session.run(train_op, feed_dict={X: batch_x, ys_for_tasks: batch_y})
-
-        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
+            _, train_batch_loss = session.run([train_op, loss_op],
+                                              feed_dict={X: batch_x, ys_for_tasks: batch_y})
+            train_batch_losses.append(train_batch_loss)
         _, dev_eval = evaluate(in_model,
                                dev_data,
                                tag_mapping,
@@ -104,6 +105,8 @@ def train(in_model,
                                task_weights,
                                config,
                                session)
+        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
+        print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
         print '; '.join(['dev {}: {:.3f}'.format(key, value)
                          for key, value in dev_eval.iteritems()])
         if dev_eval['loss'] < best_dev_loss:
@@ -137,9 +140,8 @@ def evaluate(in_model,
                                 in_class_weights,
                                 l2_coef=in_config['l2_coef'],
                                 task_weights=in_task_weights)
-
     y_pred_op = [tf.argmax(logits_i, 1) for logits_i in logits_for_tasks]
-    y_true_op = [tf.argmax(y_i, 1) for y_i in y_test_for_tasks]
+    y_true_op = [tf.argmax(y_i, 1) for y_i in ys_for_tasks]
 
     correct_pred = tf.equal(y_pred_op, y_true_op)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
@@ -410,27 +412,28 @@ def predict_single_tag(in_line, in_model, in_vocab, in_label_vocab, in_rev_label
     return tags
 
 
-def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_classes_number):
+def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_task_output_dimensions):
     with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
         X = tf.placeholder(tf.int32, [None, in_max_input_length], name='X')
-        y_tag = tf.placeholder(tf.float32, [None, in_classes_number], name='y_tag')
-        y_word = tf.placeholder(tf.float32, [None, in_classes_number], name='y_word')
+        ys_for_tasks = [tf.placeholder(tf.float32, [None, task_i_output_dimensions], name='y_{}'.format(task_idx))
+                        for task_idx, task_i_output_dimensions in enumerate(in_task_output_dimensions)]
         embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0),
                                  name='emb')
         emb = tf.nn.embedding_lookup(embeddings, X)
 
-        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm_1')
+        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm')
         outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
 
-        W_tag = tf.Variable(tf.random_normal([in_cell_size, in_classes_number]), name='W_tag')
-        b_tag = tf.Variable(tf.random_normal([in_classes_number]), name='bias_tag')
+        W_for_tasks = [tf.Variable(tf.random_normal([in_cell_size, task_i_output_dim]),
+                                   name='W_{}'.format(task_idx))
+                       for task_idx, task_i_output_dim in enumerate(in_task_output_dimensions)]
+        b_for_tasks = [tf.Variable(tf.random_normal([task_i_output_dim]),
+                                   name='bias_{}'.format(task_idx))
+                       for task_idx, task_i_output_dim in enumerate(in_task_output_dimensions)]
 
-        W_word = tf.Variable(tf.random_normal([in_cell_size, in_vocab_size]), name='W_word')
-        b_word = tf.Variable(tf.random_normal([in_classes_number]), name='bias_word')
-
-        tag_output = tf.add(tf.matmul(outputs[:, -1, :], W_tag), b_tag)
-        word_output = tf.add(tf.matmul(outputs[:, -1, :], W_word), b_word)
-    return X, [y_tag, y_word], [tag_output, word_output]
+        task_outputs = [tf.add(tf.matmul(outputs[:, -1, :], W_task), b_task)
+                        for W_task, b_task in zip(W_for_tasks, b_for_tasks)]
+    return X, tuple(ys_for_tasks), task_outputs 
 
 
 def load(in_model_folder, in_session, existing_model=None):

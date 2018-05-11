@@ -9,13 +9,11 @@ from sklearn.preprocessing import MinMaxScaler
 
 from config import read_config, DEFAULT_CONFIG_FILE
 from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset
+from training_utils import get_class_weight_proportional, get_sample_weight
 from dialogue_denoiser_lstm import (create_model,
                                     train,
                                     save,
-                                    make_dataset,
-                                    load,
-                                    get_class_weight_proportional,
-                                    get_sample_weight)
+                                    load)
 
 
 def configure_argument_parser():
@@ -44,10 +42,19 @@ def init_model(trainset, in_model_folder, resume, in_config, in_session):
         label_vocab, _ = make_vocabulary(trainset['tags'].values,
                                          in_config['max_vocabulary_size'],
                                          special_tokens=[])
+        task_output_dimensions = []
+        for task in in_config['tasks']:
+            if task == 'tag':
+                task_output_dimensions.append(len(label_vocab))
+            elif task == 'lm':
+                task_output_dimensions.append(len(vocab))
+            else:
+                raise NotImplementedError
+
         model = create_model(len(vocab),
                              in_config['embedding_size'],
                              in_config['max_input_length'],
-                             len(label_vocab))
+                             task_output_dimensions)
         init = tf.global_variables_initializer()
         in_session.run(init)
         save(in_config, vocab, char_vocab, label_vocab, in_model_folder, in_session)
@@ -92,7 +99,7 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
               actual_config['epochs_number'],
               actual_config,
               sess,
-              class_weights=class_weight_vector,
+              class_weights=[class_weight_vector, np.ones(len(vocab))],
               task_weights=config['task_weights'])
 
 
