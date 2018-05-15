@@ -1,12 +1,13 @@
 import os
 from argparse import ArgumentParser
+from operator import itemgetter
 
 import pandas as pd
 from nltk import CRFTagger
 
 THIS_FILE_DIR = os.path.dirname(__file__)
 DEEP_DISFLUENCY_FOLDER = os.path.join(THIS_FILE_DIR, 'deep_disfluency')
-TAGGER_PATH = os.path.join(DEEP_DISFLUENCY_FOLDER, 'feature_extraction/crfpostagger')
+TAGGER_PATH = os.path.join(DEEP_DISFLUENCY_FOLDER, 'deep_disfluency/feature_extraction/crfpostagger')
 
 POS_TAGGER = CRFTagger()
 POS_TAGGER.set_model_file(TAGGER_PATH)
@@ -25,9 +26,9 @@ def main(in_src_file, in_result_file):
     pos = []
     for utterance in dataset['utterance']:
         pos_i = POS_TAGGER.tag(utterance)
-        pos.append(pos_i)
+        pos.append(map(itemgetter(1), pos_i))
     dataset['pos'] = pos
-    dataset.to_json(in_result_file)
+    dataset.reset_index(drop=True).to_json(in_result_file)
 
 
 if __name__ == '__main__':

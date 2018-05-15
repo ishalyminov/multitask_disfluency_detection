@@ -78,23 +78,22 @@ def train(in_model,
     lr_decay = config['lr_decay']
     global_step = tf.Variable(0, trainable=False)
     session.run(tf.assign(global_step, 0))
-    learning_rate = tf.train.exponential_decay(starting_lr,
+    learning_rate = lr = tf.train.cosine_decay(starting_lr,
                                                global_step,
-                                               100000,
-                                               lr_decay,
-                                               staircase=True)
+                                               2000000,
+                                               alpha=0.001)
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(loss_op, global_step)
 
     saver = tf.train.Saver(tf.global_variables())
 
     _, dev_eval = evaluate(in_model,
-                               dev_data,
-                               tag_mapping,
-                               class_weights,
-                               task_weights,
-                               config,
-                               session)
+                           dev_data,
+                           tag_mapping,
+                           class_weights,
+                           task_weights,
+                           config,
+                           session)
     best_dev_f1_rm = dev_eval['f1_rm']
     epochs_without_improvement = 0
     for epoch_counter in xrange(in_epochs_number):
@@ -396,23 +395,21 @@ def eval_deep_disfluency(in_model,
             'f1_<e_word': all_results['f1_<e_word']}
 
 
+def create_fake_timings(in_tokens_number):
+    return list(zip(map(float, range(0, in_tokens_number)),
+                    map(float, range(1, in_tokens_number + 1))))
+
+
 def predict_babi_file(in_model,
                       vocabs_for_tasks,
-                      source_file_path,
+                      dataset,
                       in_config,
                       in_session,
                       target_file_path=None):
     if target_file_path:
         target_file = open(target_file_path, "w")
-    dataset = pd.read_json(source_file_path)
 
     # eval tags --> RNN tags
-    dataset = pd.DataFrame({'utterance': dataset['utterance'],
-                            'tags': [convert_from_eval_tags_to_inc_disfluency_tags(tags_i,
-                                                                                   words_i,
-                                                                                   representation="disf1")
-                                     for tags_i, words_i in zip(dataset['tags'], dataset['utterance'])],
-                            'pos': dataset['pos']})
     X, ys_for_tasks = make_multitask_dataset(dataset,
                                              vocabs_for_tasks[0][0],
                                              vocabs_for_tasks[0][1],
@@ -440,10 +437,10 @@ def predict_babi_file(in_model,
                                                                                  dataset.shape[0])
 
     predictions_eval_iter = iter(predictions_eval)
-    for speaker, speaker_data in dataset.iterrows():
+    for speaker, (_, speaker_data) in enumerate(dataset.iterrows()):
         if target_file_path:
             target_file.write("Speaker: " + str(speaker) + "\n\n")
-        timing_data, lex_data, pos_data, labels = ([0.33] * len(speaker_data['utterance']),  # fake timing
+        timing_data, lex_data, pos_data, labels = (create_fake_timings(len(speaker_data['utterance'])),
                                                    speaker_data['utterance'],
                                                    speaker_data['pos'],
                                                    speaker_data['tags'])
@@ -481,37 +478,46 @@ def eval_babi(in_model,
               in_session,
               verbose=True):
     increco_file = 'swbd_disf_heldout_data_output_increco.text'
+    dataset = pd.read_json(source_file_path)
     predict_babi_file(in_model,
                       in_vocabs_for_tasks,
-                      source_file_path,
+                      dataset,
                       in_config,
                       in_session,
                       target_file_path=increco_file)
-    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    IDs, timings, words, pos_tags, labels = (map(str, range(dataset.shape[0])),
+                                       [None] * dataset.shape[0],
+                                       dataset['utterance'],
+                                       dataset['pos'],
+                                       dataset['tags']) 
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
         # if "asr" in division and not dialogue[:4] in good_asr: continue
-        gold_data[dialogue] = (a, b, c, d)
+        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
     final_output_name = increco_file.replace("_increco", "_final")
     incremental_output_disfluency_eval_from_file(increco_file,
                                                  gold_data,
                                                  utt_eval=True,
-                                                 error_analysis=True,
+                                                 error_analysis=False,
                                                  word=True,
                                                  interval=False,
                                                  outputfilename=final_output_name)
     # hyp_dir = experiment_dir
-    IDs, timings, words, pos_tags, labels = get_tag_data_from_corpus_file(source_file_path)
+    IDs, timings, words, pos_tags, labels = (map(str, range(dataset.shape[0])),
+                                       [None] * dataset.shape[0],
+                                       dataset['utterance'],
+                                       dataset['pos'],
+                                       dataset['tags'])
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
         # if "asr" in division and not dialogue[:4] in good_asr: continue
         d = rename_all_repairs_in_line_with_index(list(d))
-        gold_data[dialogue] = (a, b, c, d)
+        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
 
     # the below does just the final output evaluation, assuming a final output file, faster
     hyp_file = "swbd_disf_heldout_data_output_final.text"
     word = True  # world-level analyses
-    error = True  # get an error analysis
+    error = False  # get an error analysis
     results, speaker_rate_dict, error_analysis = final_output_disfluency_eval_from_file(
         hyp_file,
         gold_data,
