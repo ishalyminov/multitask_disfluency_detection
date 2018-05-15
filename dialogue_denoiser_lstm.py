@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from data_utils import make_multitask_dataset
+from pos_tag_dataset import pos_tag
 from training_utils import get_loss_function, batch_generator
 
 THIS_FILE_DIR = os.path.dirname(__file__)
@@ -539,29 +540,15 @@ def eval_babi(in_model,
             'f1_<e_word': all_results['f1_<e_word']}
 
 
-def filter_line(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
+def filter_line(in_line, in_model, in_vocabs_for_tasks, in_config, in_session):
     tokens = in_line.lower().split()
-    dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
-    X_line, y_line = make_dataset(dataset, in_vocab, in_label_vocab)
-    X, y, logits = in_model
-    y_pred_op = tf.argmax(logits, 1)
-    y_pred  = in_session.run([y_pred_op],
-                             feed_dict={X: X_line[0]})
-    result_tokens = map(in_rev_label_vocab.get, y_pred[0])
+    dataset = pd.DataFrame({'utterance': [tokens],
+                            'tags': [['<f/>'] * len(tokens)],
+                            'pos': [pos_tag(tokens)]})
+    (tag_vocab, tag_label_vocab, tag_rev_label_vocab) = in_vocabs_for_tasks[0]
+    X_line, ys_line = make_multitask_dataset(dataset, tag_vocab, tag_label_vocab, in_config)
+    result_tokens = predict(in_model, dataset, in_vocabs_for_tasks, in_session, batch_size=1)
     return ' '.join(result_tokens)
-
-
-def predict_single_tag(in_line, in_model, in_vocab, in_label_vocab, in_rev_label_vocab, in_session):
-    tokens = in_line.lower().split()
-    dataset = pd.DataFrame({'utterance': [tokens], 'tags': [['<f/>'] * len(tokens)]})
-    X_line, y_line = make_dataset(dataset, in_vocab, in_label_vocab)
-    X_last = [X_line[-1]]
-    X, y, logits = in_model
-    y_pred_op = tf.argmax(logits, 1)
-    y_pred  = in_session.run([y_pred_op],
-                             feed_dict={X: X_last})
-    tags = map(in_rev_label_vocab.get, y_pred[0])
-    return tags
 
 
 def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_task_output_dimensions):

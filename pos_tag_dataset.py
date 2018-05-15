@@ -13,6 +13,11 @@ POS_TAGGER = CRFTagger()
 POS_TAGGER.set_model_file(TAGGER_PATH)
 
 
+def pos_tag(in_tokens):
+    tags = POS_TAGGER.tag(in_tokens)
+    return map(itemgetter(1), tags)
+
+
 def configure_argument_parser():
     parser = ArgumentParser(description='POS tag dataset')
     parser.add_argument('dataset')
@@ -25,8 +30,7 @@ def main(in_src_file, in_result_file):
     dataset = pd.read_json(in_src_file)
     pos = []
     for utterance in dataset['utterance']:
-        pos_i = POS_TAGGER.tag(utterance)
-        pos.append(map(itemgetter(1), pos_i))
+        pos.append(pos_tag(utterance))
     dataset['pos'] = pos
     dataset.reset_index(drop=True).to_json(in_result_file)
 
