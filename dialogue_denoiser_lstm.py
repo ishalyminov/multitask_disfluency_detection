@@ -494,7 +494,10 @@ def eval_babi(in_model,
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
         # if "asr" in division and not dialogue[:4] in good_asr: continue
-        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
+        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(d,
+                                                                          b,
+                                                                          representation="disf1")
+        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, current_tags_eval)
     final_output_name = increco_file.replace("_increco", "_final")
     incremental_output_disfluency_eval_from_file(increco_file,
                                                  gold_data,
@@ -512,13 +515,16 @@ def eval_babi(in_model,
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
         # if "asr" in division and not dialogue[:4] in good_asr: continue
-        d = rename_all_repairs_in_line_with_index(list(d))
+        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(d,
+                                                                          b,
+                                                                          representation="disf1")
+        d = rename_all_repairs_in_line_with_index(current_tags_eval)
         gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
 
     # the below does just the final output evaluation, assuming a final output file, faster
     hyp_file = "swbd_disf_heldout_data_output_final.text"
     word = True  # world-level analyses
-    error = False  # get an error analysis
+    error = True  # get an error analysis
     results, speaker_rate_dict, error_analysis = final_output_disfluency_eval_from_file(
         hyp_file,
         gold_data,
@@ -541,13 +547,13 @@ def eval_babi(in_model,
 
 
 def filter_line(in_line, in_model, in_vocabs_for_tasks, in_config, in_session):
-    tokens = in_line.lower().split()
+    tokens = unicode(in_line.lower()).split()
     dataset = pd.DataFrame({'utterance': [tokens],
                             'tags': [['<f/>'] * len(tokens)],
                             'pos': [pos_tag(tokens)]})
     (tag_vocab, tag_label_vocab, tag_rev_label_vocab) = in_vocabs_for_tasks[0]
     X_line, ys_line = make_multitask_dataset(dataset, tag_vocab, tag_label_vocab, in_config)
-    result_tokens = predict(in_model, dataset, in_vocabs_for_tasks, in_session, batch_size=1)
+    result_tokens = predict(in_model, (X_line, ys_line), in_vocabs_for_tasks, in_session, batch_size=1)
     return ' '.join(result_tokens)
 
 

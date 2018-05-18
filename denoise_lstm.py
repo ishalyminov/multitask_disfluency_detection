@@ -26,8 +26,8 @@ def run(in_model_folder):
             while line:
                 print filter_line(line,
                                   model,
-                                  (vocab, label_vocab, rev_label_vocab),
-                                  (vocab, vocab, rev_vocab),
+                                  [(vocab, label_vocab, rev_label_vocab),
+                                   (vocab, vocab, rev_vocab)],
                                   actual_config,
                                   sess)
                 line = raw_input().strip()
