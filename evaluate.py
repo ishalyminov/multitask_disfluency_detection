@@ -45,9 +45,7 @@ def main(in_dataset_file, in_model_folder, in_mode):
                                                sess)
         elif in_mode == 'babi':
             eval_result = eval_babi(model,
-                                    vocab,
-                                    label_vocab,
-                                    rev_label_vocab,
+                                    [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
                                     in_dataset_file,
                                     actual_config,
                                     sess)
