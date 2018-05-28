@@ -1,2 +1,1 @@
-# dialogue_denoiser
-The denoiser approach to incremental dialogue processing
+The Multi-task LSTM approach to incremental disfluency detection
