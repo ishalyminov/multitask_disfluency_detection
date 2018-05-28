@@ -14,6 +14,7 @@ THIS_FILE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(THIS_FILE_DIR, 'deep_disfluency'))
 
 from deep_disfluency.tagger.deep_tagger import DeepDisfluencyTagger
+from deep_disfluency.utils.tools import convert_from_inc_disfluency_tags_to_eval_tags
 from deep_disfluency.evaluation.disf_evaluation import incremental_output_disfluency_eval_from_file
 from deep_disfluency.evaluation.disf_evaluation import final_output_disfluency_eval_from_file
 from deep_disfluency.evaluation.eval_utils import rename_all_repairs_in_line_with_index
@@ -86,7 +87,10 @@ def eval_babi(in_tagger,
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
         # if "asr" in division and not dialogue[:4] in good_asr: continue
-        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
+        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(d,
+                                                                          b,
+                                                                          representation="disf1")
+        gold_data[dialogue] = (create_fake_timings(len(b)), b, c, current_tags_eval)
     final_output_name = increco_file.replace("_increco", "_final")
     incremental_output_disfluency_eval_from_file(increco_file,
                                                  gold_data,
@@ -103,14 +107,17 @@ def eval_babi(in_tagger,
                                        dataset['tags'])
     gold_data = {}  # map from the file name to the data
     for dialogue, a, b, c, d in zip(IDs, timings, words, pos_tags, labels):
+        current_tags_eval = convert_from_inc_disfluency_tags_to_eval_tags(d,
+                                                                          b,
+                                                                          representation="disf1")
         # if "asr" in division and not dialogue[:4] in good_asr: continue
-        d = rename_all_repairs_in_line_with_index(list(d))
+        d = rename_all_repairs_in_line_with_index(list(current_tags_eval))
         gold_data[dialogue] = (create_fake_timings(len(b)), b, c, d)
 
     # the below does just the final output evaluation, assuming a final output file, faster
     hyp_file = "swbd_disf_heldout_data_output_final.text"
     word = True  # world-level analyses
-    error = False  # get an error analysis
+    error = True  # get an error analysis
     results, speaker_rate_dict, error_analysis = final_output_disfluency_eval_from_file(
         hyp_file,
         gold_data,
@@ -135,17 +142,16 @@ def eval_babi(in_tagger,
 def main(in_dataset, in_mode):
     # Hough and Schlangen 2015 config
     disf = DeepDisfluencyTagger(
-        config_file="deep_disfluency/experiments/experiment_configs.csv",
+        config_file="deep_disfluency/deep_disfluency/experiments/experiment_configs.csv",
         config_number=21,
-        saved_model_dir="deep_disfluency/experiments/021/epoch_40"
+        saved_model_dir="deep_disfluency/deep_disfluency/experiments/021/epoch_40"
     )
-    for idx, row in in_dataset.iterrows():
-        print row['utterance']
-        print disf.tag_utterance(row['utterance'])
+    for key, value in eval_babi(disf, in_dataset).iteritems():
+        print '{}:\t{:.3f}'.format(key, value)
 
 
 if __name__ == '__main__':
     parser = configure_argument_parser()
     args = parser.parse_args()
 
-    main(pd.read_json(args.dataset), args.mode)
+    main(args.dataset, args.mode)
