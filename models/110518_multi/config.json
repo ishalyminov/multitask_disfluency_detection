@@ -1,0 +1,1 @@
+{"class_weight": "proportional", "embedding_size": 128, "batch_size": 32, "epochs_number": 999999999, "tasks": ["tag", "lm"], "lr": 0.01, "use_pos_tags": true, "task_weights": [1.0, 0.1], "early_stopping_threshold": 999999, "max_vocabulary_size": 20000, "max_input_length": 10, "class_weight_smoothing_coef": 1.05, "lr_decay": 0.9, "l2_coef": 0.001}
