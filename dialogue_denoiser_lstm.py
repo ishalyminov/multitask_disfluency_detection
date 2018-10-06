@@ -131,6 +131,96 @@ def train(in_model,
     print 'Optimization Finished!'
 
 
+def post_train_lm(in_model,
+                  train_data,
+                  dev_data,
+                  test_data,
+                  in_task_vocabs,
+                  in_model_folder,
+                  in_epochs_number,
+                  config,
+                  session,
+                  class_weights=None,
+                  task_weights=None,
+                  **kwargs):
+    X_train, y_train_for_tasks = train_data
+
+    tag_mapping = get_tag_mapping(in_task_vocabs[0][1])
+
+    X, ys_for_tasks, logits_for_tasks = in_model
+
+    for v in tf.trainable_variables():
+        v_initial = tf.Variable(v, name=v.name + '_initial', trainable=False)
+        session.run(v_initial.initializer)
+
+    if class_weights is None:
+        class_weights = [np.ones(y_train_i.shape[1]) for y_train_i in y_train_for_tasks]
+    if task_weights is None:
+        task_weights = {'lm': 1.0, 'tag': 0.0}
+    # Define loss and optimizer
+    loss_op = get_loss_function(logits_for_tasks,
+                                ys_for_tasks,
+                                class_weights,
+                                l2_coef=config['l2_coef'],
+                                task_weights=task_weights,
+                                weight_trajectory_coef=0.99)
+
+    starting_lr = config['lr']
+    lr_decay = config['lr_decay']
+    global_step = tf.Variable(0, trainable=False)
+    session.run(tf.assign(global_step, 0))
+    learning_rate = lr = tf.train.cosine_decay(starting_lr,
+                                               global_step,
+                                               2000000,
+                                               alpha=0.001)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    train_op = optimizer.minimize(loss_op, global_step)
+
+    saver = tf.train.Saver(tf.global_variables())
+
+    _, dev_eval = evaluate(in_model,
+                           dev_data,
+                           tag_mapping,
+                           class_weights,
+                           task_weights,
+                           config,
+                           session)
+    best_dev_f1_rm = dev_eval['f1_rm']
+    epochs_without_improvement = 0
+    for epoch_counter in xrange(in_epochs_number):
+        batch_gen = batch_generator(X_train,
+                                    y_train_for_tasks,
+                                    config['batch_size'])
+        train_batch_losses = []
+        for batch_x, batch_y in batch_gen:
+            _, train_batch_loss = session.run([train_op, loss_op],
+                                              feed_dict={X: batch_x, ys_for_tasks: batch_y})
+            train_batch_losses.append(train_batch_loss)
+        _, dev_eval = evaluate(in_model,
+                               dev_data,
+                               tag_mapping,
+                               class_weights,
+                               task_weights,
+                               config,
+                               session)
+        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
+        print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
+        print '; '.join(['dev {}: {:.3f}'.format(key, value)
+                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate))
+        if best_dev_f1_rm < dev_eval['f1_rm']:
+            best_dev_f1_rm = dev_eval['f1_rm']
+            saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
+            print 'New best loss. Saving checkpoint'
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        if config['early_stopping_threshold'] < epochs_without_improvement:
+            print 'Early stopping after {} epochs'.format(epoch_counter)
+            break
+
+    print 'Optimization Finished!'
+
+
 def evaluate(in_model,
              in_dataset,
              in_tag_map,

@@ -85,7 +85,8 @@ def batch_generator(X, y_for_tasks, batch_size):
 def get_loss_function(in_logits_for_tasks,
                       in_labels_for_tasks,
                       in_class_weights_for_tasks,
-                      l2_coef=0.00,
+                      l2_coef=0.0,
+                      weight_change_penalization_coef=0.0,
                       task_weights=None):
     assert len(in_logits_for_tasks) == len(in_labels_for_tasks) == len(task_weights)
     if task_weights == None:
@@ -108,8 +109,17 @@ def get_loss_function(in_logits_for_tasks,
                              for v in tf.trainable_variables()
                              if 'bias' not in v.name]) * l2_coef
 
+    graph = tf.get_default_graph()
+    # L2 regularization on model weights trajectory
+    weight_change_l2s = []
+    for v in tf.trainable_variables():
+        v_initial = graph.get_tensor_by_name(v.name.partition(':')[0] + '_initial:' + v.name.partition(':')[1])
+        weight_change_l2s.append(tf.nn.l2_loss(tf.subtract(v, v_initial)))
+    loss_weight_change = tf.reduce_sum(weight_change_l2s) * weight_change_penalization_coef
+
     losses_weighted = [loss_i * task_weight_i
                        for loss_i, task_weight_i in zip(losses, task_weights)]
-    cost = tf.reduce_mean(tf.add(tf.reduce_sum(losses_weighted), loss_l2), name='cost')
+    cost = tf.reduce_mean(tf.add(tf.reduce_sum(losses_weighted), loss_l2, loss_weight_change),
+                          name='cost')
 
     return cost
