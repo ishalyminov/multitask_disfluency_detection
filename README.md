@@ -3,7 +3,7 @@ Code for the paper "Multi-Task Learning for Domain-General Spoken Disfluency Det
 
 Model architecture
 ==
-![](model_architecture.png)
+![](multitask_disfluency_detector.jpg)
 
 bAbI+ disfluency study data generation
 ==
