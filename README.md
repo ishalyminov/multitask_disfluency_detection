@@ -1,5 +1,5 @@
 # Multitask disfluency detection
-Code for the paper "Multi-Task Learning for Domain-General Spoken Disfluency Detection in Dialogue Systems" ([Igor Shalyminov](https://github.com/ishalyminov), [Arash Eshghi](https://github.com/araesh), and [Oliver Lemon](https://github.com/olemon1)) [[SemDial 2018 paper]](https://arxiv.org/pdf/1810.03352.pdf)
+Code for the paper "Multi-Task Learning for Domain-General Spoken Disfluency Detection in Dialogue Systems" ([Igor Shalyminov](https://github.com/ishalyminov), [Arash Eshghi](https://github.com/araesh), and [Oliver Lemon](https://github.com/olemon1)) [[SemDial 2018 paper]](https://arxiv.org/pdf/1810.03352.pdf) [[Slides]](https://drive.google.com/open?id=1f3HUrKqr6JtLbem3NeDpyABmYIRfy7TM)
 
 Model architecture
 ==
