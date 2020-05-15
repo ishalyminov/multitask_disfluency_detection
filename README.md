@@ -5,6 +5,31 @@ Model architecture
 ==
 ![](multitask_disfluency_detector.jpg)
 
+Getting started
+==
+
+1. Set up the environment (below are steps for Conda):
+
+```bash
+$ cd code-directory
+$ git submodule update --init
+$ conda create -n multitask_disfluency python=2.7
+$ conda activate multitask_disfluency
+$ pip install -r requirements.txt
+```
+
+2. Preprocess the Switchboard dataset for training:
+
+```bash
+$ python make_deep_disfluency_dataset.py swbd disfluency
+```
+
+3. Train the model:
+
+```bash
+$ python train.py swbd model
+```
+
 bAbI+ disfluency study data generation
 ==
 1. Get the [bAbI tools](https://github.com/ishalyminov/babi_tools) and install requirements

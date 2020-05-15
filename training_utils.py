@@ -112,14 +112,19 @@ def get_loss_function(in_logits_for_tasks,
     graph = tf.get_default_graph()
     # L2 regularization on model weights trajectory
     weight_change_l2s = []
+    all_tensor_names = [v.name for v in tf.trainable_variables()]
     for v in tf.trainable_variables():
-        v_initial = graph.get_tensor_by_name(v.name.partition(':')[0] + '_initial:' + v.name.partition(':')[1])
+        v_initial_name = v.name.partition(':')[0] + '_initial:' + v.name.partition(':')[-1]
+        if v_initial_name not in all_tensor_names:
+            continue
+        v_initial = graph.get_tensor_by_name(v_initial_name)
         weight_change_l2s.append(tf.nn.l2_loss(tf.subtract(v, v_initial)))
-    loss_weight_change = tf.reduce_sum(weight_change_l2s) * weight_change_penalization_coef
+    loss_weight_change = None if not len(weight_change_l2s) \
+                         else tf.reduce_sum(weight_change_l2s) * weight_change_penalization_coef
 
     losses_weighted = [loss_i * task_weight_i
                        for loss_i, task_weight_i in zip(losses, task_weights)]
-    cost = tf.reduce_mean(tf.add(tf.reduce_sum(losses_weighted), loss_l2, loss_weight_change),
-                          name='cost')
+    aux_losses = [l for l in [loss_l2, loss_weight_change] if l is not None]
+    cost = tf.reduce_mean(tf.add(tf.reduce_sum(losses_weighted), *aux_losses), name='cost')
 
     return cost
