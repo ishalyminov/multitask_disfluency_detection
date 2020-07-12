@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from collections import defaultdict, deque
 from math import sin, pi
 
@@ -74,7 +76,7 @@ def batch_generator(X, y_for_tasks, batch_size):
     batch_counter = 0
     while batch_start_idx < X.shape[0]:
         if batch_counter % 1000 == 0:
-            print 'Processed {} out of {} batches'.format(batch_counter, total_batches_number)
+            print('Processed {} out of {} batches'.format(batch_counter, total_batches_number))
         batch = (X[batch_start_idx: batch_start_idx + batch_size],
                  [y_i[batch_start_idx: batch_start_idx + batch_size] for y_i in y_for_tasks])
         batch_start_idx += batch_size

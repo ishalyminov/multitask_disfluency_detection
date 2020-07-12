@@ -13,7 +13,7 @@ UNK = '_UNK'
 
 
 def make_char_vocabulary():
-    alphabet = filter(lambda x: x not in string.uppercase, string.printable)
+    alphabet = filter(lambda x: x not in string.ascii_uppercase, string.printable)
     tokens = [PAD, UNK] + list(alphabet)
     vocab = {token: index for (index, token) in enumerate(tokens)}
     return vocab
@@ -34,10 +34,10 @@ def make_vocabulary(in_lines,
                 if len(window) == window.maxlen:
                     freqdict[' '.join(window)] += 1
     vocab = sorted(freqdict.items(), key=itemgetter(1), reverse=True)
-    vocab = filter(lambda x: frequency_threshold < x[1], vocab)
+    vocab = list(filter(lambda x: frequency_threshold < x[1], vocab))
     logging.info('{} tokens ({}% of the vocabulary) were filtered due to the frequency threshold'
                  .format(len(freqdict) - len(vocab), 100.0 * len(vocab) / float(len(freqdict))))
-    rev_vocab = (list(special_tokens) + map(itemgetter(0), vocab))[:max_vocabulary_size]
+    rev_vocab = (list(special_tokens) + list(map(itemgetter(0), vocab)))[:max_vocabulary_size]
     vocab = {word: idx for idx, word in enumerate(rev_vocab)}
     return vocab, rev_vocab
 

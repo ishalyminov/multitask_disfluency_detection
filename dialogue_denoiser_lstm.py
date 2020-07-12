@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import json
 import random
 import os
@@ -113,22 +115,22 @@ def train(in_model,
                                task_weights,
                                config,
                                session)
-        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
-        print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
-        print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate))
+        print('Epoch {} out of {} results'.format(epoch_counter, in_epochs_number))
+        print('train loss: {:.3f}'.format(np.mean(train_batch_losses)))
+        print('; '.join(['dev {}: {:.3f}'.format(key, value)
+                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate)))
         if best_dev_f1_rm < dev_eval['f1_rm']:
             best_dev_f1_rm = dev_eval['f1_rm']
             saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
-            print 'New best loss. Saving checkpoint'
+            print('New best loss. Saving checkpoint')
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
         if config['early_stopping_threshold'] < epochs_without_improvement:
-            print 'Early stopping after {} epochs'.format(epoch_counter)
+            print('Early stopping after {} epochs'.format(epoch_counter))
             break
 
-    print 'Optimization Finished!'
+    print('Optimization Finished!')
 
 
 def post_train_lm(in_model,
@@ -203,22 +205,22 @@ def post_train_lm(in_model,
                                task_weights,
                                config,
                                session)
-        print 'Epoch {} out of {} results'.format(epoch_counter, in_epochs_number)
-        print 'train loss: {:.3f}'.format(np.mean(train_batch_losses))
-        print '; '.join(['dev {}: {:.3f}'.format(key, value)
-                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate))
+        print('Epoch {} out of {} results'.format(epoch_counter, in_epochs_number))
+        print('train loss: {:.3f}'.format(np.mean(train_batch_losses)))
+        print('; '.join(['dev {}: {:.3f}'.format(key, value)
+                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate)))
         if best_dev_f1_rm < dev_eval['f1_rm']:
             best_dev_f1_rm = dev_eval['f1_rm']
             saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
-            print 'New best loss. Saving checkpoint'
+            print('New best loss. Saving checkpoint')
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
         if config['early_stopping_threshold'] < epochs_without_improvement:
-            print 'Early stopping after {} epochs'.format(epoch_counter)
+            print('Early stopping after {} epochs'.format(epoch_counter))
             break
 
-    print 'Optimization Finished!'
+    print('Optimization Finished!')
 
 
 def evaluate(in_model,
@@ -330,7 +332,7 @@ def predict_increco_file(in_model,
     if target_file_path:
         target_file = open(target_file_path, "w")
     if 'timings' in source_file_path:
-        print "input file has timings"
+        print("input file has timings")
         if not is_asr_results_file:
             dialogues = []
             IDs, timings, words, pos_tags, labels = \
@@ -342,7 +344,7 @@ def predict_increco_file(in_model,
                                             labels):
                 dialogues.append((dialogue, (a, b, c, d)))
     else:
-        print "no timings in input file, creating fake timings"
+        print("no timings in input file, creating fake timings")
         raise NotImplementedError
 
     # collecting a single dataset for the model to predict in batches
@@ -393,7 +395,7 @@ def predict_increco_file(in_model,
             broken_sequences_number += 1
         predictions_eval += current_tags_eval
         global_word_index += len(utterance)
-    print '#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number, len(utterances))
+    print('#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number, len(utterances)))
 
     predictions_eval_iter = iter(predictions_eval) 
     for speaker, speaker_data in dialogues:
@@ -478,7 +480,7 @@ def eval_deep_disfluency(in_model,
     # derivable from the incremental output, takes quite a while
     if verbose:
         for k, v in results.items():
-            print k, v
+            print(k, v)
     all_results = deepcopy(results)
 
     return {'f1_<rm_word': all_results['f1_<rm_word'],
@@ -524,8 +526,8 @@ def predict_babi_file(in_model,
             broken_sequences_number += 1
         predictions_eval += current_tags_eval
         global_word_index += len(utterance)
-    print '#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number,
-                                                                                 dataset.shape[0])
+    print('#broken sequences after RNN --> eval conversion: {} out of {}'.format(broken_sequences_number,
+                                                                                 dataset.shape[0]))
 
     predictions_eval_iter = iter(predictions_eval)
     for speaker, (_, speaker_data) in enumerate(dataset.iterrows()):
@@ -628,7 +630,7 @@ def eval_babi(in_model,
     # derivable from the incremental output, takes quite a while
     if verbose:
         for k, v in results.items():
-            print k, v
+            print(k, v)
     all_results = deepcopy(results)
 
     return {'f1_<rm_word': all_results['f1_<rm_word'],
@@ -637,7 +639,7 @@ def eval_babi(in_model,
 
 
 def filter_line(in_line, in_model, in_vocabs_for_tasks, in_config, in_session):
-    tokens = unicode(in_line.lower()).split()
+    tokens = in_line.lower().split()
     dataset = pd.DataFrame({'utterance': [tokens],
                             'tags': [['<f/>'] * len(tokens)],
                             'pos': [pos_tag(tokens)]})
@@ -668,7 +670,7 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_task_outpu
 
         task_outputs = [tf.add(tf.matmul(outputs[:, -1, :], W_task), b_task)
                         for W_task, b_task in zip(W_for_tasks, b_for_tasks)]
-    return X, tuple(ys_for_tasks), task_outputs 
+    return X, tuple(ys_for_tasks), task_outputs
 
 
 def load(in_model_folder, in_session, existing_model=None):

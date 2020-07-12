@@ -5,15 +5,14 @@ from operator import itemgetter
 import pandas as pd
 import numpy as np
 import tensorflow as tf
+
 from sklearn.preprocessing import MinMaxScaler
 
 from config import read_config, DEFAULT_CONFIG_FILE
 from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset
+from model import get_ulmfit_model, AWD_LSTM_DisfluencyDetector
 from training_utils import get_class_weight_proportional, get_sample_weight
-from dialogue_denoiser_lstm import (create_model,
-                                    train,
-                                    save,
-                                    load)
+from dialogue_denoiser_lstm import create_model, train, save, load
 
 
 def configure_argument_parser():
@@ -75,9 +74,11 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
                                                                           in_config,
                                                                           sess)
         rev_vocab = {word_id: word
-                     for word, word_id in vocab.iteritems()}
+                     for word, word_id in vocab.items()}
         rev_label_vocab = {label_id: label
-                           for label, label_id in label_vocab.iteritems()}
+                           for label, label_id in label_vocab.items()}
+        model = AWD_LSTM_DisfluencyDetector(vocab, rev_vocab, label_vocab, rev_label_vocab, in_config)
+
         X_train, ys_train = make_multitask_dataset(trainset, vocab, label_vocab, actual_config)
         X_dev, ys_dev = make_multitask_dataset(devset, vocab, label_vocab, actual_config)
         X_test, ys_test = make_multitask_dataset(testset, vocab, label_vocab, actual_config)
@@ -87,7 +88,8 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
                                                      smoothing_coef=actual_config['class_weight_smoothing_coef'])
 
         scaler = MinMaxScaler(feature_range=(1, 5))
-        class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
+        class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1),
+                                                                sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
 
 
         train(model,
