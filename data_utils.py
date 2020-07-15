@@ -12,6 +12,10 @@ PAD = '_PAD'
 UNK = '_UNK'
 
 
+def reverse_dict(in_dict):
+    return {val: key for key, val in in_dict.items()}
+
+
 def make_char_vocabulary():
     alphabet = filter(lambda x: x not in string.ascii_uppercase, string.printable)
     tokens = [PAD, UNK] + list(alphabet)

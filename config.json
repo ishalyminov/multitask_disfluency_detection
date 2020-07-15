@@ -1,6 +1,6 @@
 {
   "embedding_size": 128,
-  "use_pos_tags": true,
+  "use_pos_tags": false,
   "batch_size": 32,
   "epochs_number": 999999999,
   "lr": 0.1,

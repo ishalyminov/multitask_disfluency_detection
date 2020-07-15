@@ -28,16 +28,9 @@ from deep_disfluency.evaluation.eval_utils import get_tag_data_from_corpus_file
 from deep_disfluency.evaluation.eval_utils import rename_all_repairs_in_line_with_index
 from deep_disfluency_utils import get_tag_mapping
 
-random.seed(273)
-np.random.seed(273)
-tf.set_random_seed(273)
+
 
 MODEL_NAME = 'ckpt'
-VOCABULARY_NAME = 'vocab.json'
-CHAR_VOCABULARY_NAME = 'char_vocab.json'
-LABEL_VOCABULARY_NAME = 'label_vocab.json'
-EVAL_LABEL_VOCABULARY_NAME = 'eval_label_vocab.json'
-CONFIG_NAME = 'config.json'
 
 DATA_DIR = os.path.join(THIS_FILE_DIR,
                         'deep_disfluency',
@@ -46,91 +39,6 @@ DATA_DIR = os.path.join(THIS_FILE_DIR,
                         'disfluency_detection',
                         'switchboard')
 DEFAULT_HELDOUT_DATASET = DATA_DIR + '/swbd_disf_heldout_data_timings.csv'
-
-
-def train(in_model,
-          train_data,
-          dev_data,
-          test_data,
-          in_task_vocabs,
-          in_model_folder,
-          in_epochs_number,
-          config,
-          session,
-          class_weights=None,
-          task_weights=None,
-          **kwargs):
-    X_train, y_train_for_tasks = train_data
-
-    tag_mapping = get_tag_mapping(in_task_vocabs[0][1])
-
-    X, ys_for_tasks, logits_for_tasks = in_model
-
-    if class_weights is None:
-        class_weights = [np.ones(y_train_i.shape[1]) for y_train_i in y_train_for_tasks]
-    if task_weights is None:
-        task_weights = np.ones(len(y_train_for_tasks))
-    # Define loss and optimizer
-    loss_op = get_loss_function(logits_for_tasks,
-                                ys_for_tasks,
-                                class_weights,
-                                l2_coef=config['l2_coef'],
-                                task_weights=task_weights)
-
-    starting_lr = config['lr']
-    lr_decay = config['lr_decay']
-    global_step = tf.Variable(0, trainable=False)
-    session.run(tf.assign(global_step, 0))
-    learning_rate = lr = tf.train.cosine_decay(starting_lr,
-                                               global_step,
-                                               2000000,
-                                               alpha=0.001)
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-    train_op = optimizer.minimize(loss_op, global_step)
-
-    saver = tf.train.Saver(tf.global_variables())
-
-    _, dev_eval = evaluate(in_model,
-                           dev_data,
-                           tag_mapping,
-                           class_weights,
-                           task_weights,
-                           config,
-                           session)
-    best_dev_f1_rm = dev_eval['f1_rm']
-    epochs_without_improvement = 0
-    for epoch_counter in xrange(in_epochs_number):
-        batch_gen = batch_generator(X_train,
-                                    y_train_for_tasks,
-                                    config['batch_size'])
-        train_batch_losses = []
-        for batch_x, batch_y in batch_gen:
-            _, train_batch_loss = session.run([train_op, loss_op],
-                                              feed_dict={X: batch_x, ys_for_tasks: batch_y})
-            train_batch_losses.append(train_batch_loss)
-        _, dev_eval = evaluate(in_model,
-                               dev_data,
-                               tag_mapping,
-                               class_weights,
-                               task_weights,
-                               config,
-                               session)
-        print('Epoch {} out of {} results'.format(epoch_counter, in_epochs_number))
-        print('train loss: {:.3f}'.format(np.mean(train_batch_losses)))
-        print('; '.join(['dev {}: {:.3f}'.format(key, value)
-                         for key, value in dev_eval.iteritems()]) + ' @lr={}'.format(session.run(learning_rate)))
-        if best_dev_f1_rm < dev_eval['f1_rm']:
-            best_dev_f1_rm = dev_eval['f1_rm']
-            saver.save(session, os.path.join(in_model_folder, MODEL_NAME))
-            print('New best loss. Saving checkpoint')
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-        if config['early_stopping_threshold'] < epochs_without_improvement:
-            print('Early stopping after {} epochs'.format(epoch_counter))
-            break
-
-    print('Optimization Finished!')
 
 
 def post_train_lm(in_model,
@@ -221,53 +129,6 @@ def post_train_lm(in_model,
             break
 
     print('Optimization Finished!')
-
-
-def evaluate(in_model,
-             in_dataset,
-             in_tag_map,
-             in_class_weights,
-             in_task_weights,
-             in_config,
-             in_session,
-             batch_size=32):
-    X_test, y_test_for_tasks = in_dataset
-    X, ys_for_tasks, logits_for_tasks = in_model
-
-    # Evaluate model (with test logits, for dropout to be disabled)
-    loss_op = get_loss_function(logits_for_tasks,
-                                ys_for_tasks,
-                                in_class_weights,
-                                l2_coef=in_config['l2_coef'],
-                                task_weights=in_task_weights)
-    y_pred_op = [tf.argmax(logits_i, 1) for logits_i in logits_for_tasks]
-    y_true_op = [tf.argmax(y_i, 1) for y_i in ys_for_tasks]
-
-    correct_pred = tf.equal(y_pred_op, y_true_op)
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-
-    # Start training
-    batch_gen = batch_generator(X_test, y_test_for_tasks, batch_size)
-
-    batch_losses, batch_accuracies = [], []
-    y_pred_main_task = np.zeros(X_test.shape[0])
-    for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
-        y_pred_batch, loss_batch, acc_batch = in_session.run([y_pred_op, loss_op, accuracy],
-                                                              feed_dict={X: batch_x,
-                                                                         ys_for_tasks: batch_y})
-        y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
-        batch_losses.append(loss_batch)
-        batch_accuracies.append(acc_batch)
-
-    y_gold_main_task = np.argmax(y_test_for_tasks[0], -1)
-    result_map = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
-    for class_name, class_ids in in_tag_map.iteritems():
-        result_map['f1_' + class_name] = sk.metrics.f1_score(y_true=y_gold_main_task
-                                                             ,
-                                                             y_pred=y_pred_main_task,
-                                                             labels=class_ids,
-                                                             average='micro')
-    return y_pred_main_task, result_map
 
 
 def predict(in_model, in_dataset, in_vocabs_for_tasks, in_session, batch_size=32):
@@ -671,47 +532,3 @@ def create_model(in_vocab_size, in_cell_size, in_max_input_length, in_task_outpu
         task_outputs = [tf.add(tf.matmul(outputs[:, -1, :], W_task), b_task)
                         for W_task, b_task in zip(W_for_tasks, b_for_tasks)]
     return X, tuple(ys_for_tasks), task_outputs
-
-
-def load(in_model_folder, in_session, existing_model=None):
-    with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
-        vocab = json.load(vocab_in)
-    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
-        char_vocab = json.load(char_vocab_in)
-    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
-        label_vocab = json.load(label_vocab_in)
-    with open(os.path.join(in_model_folder, CONFIG_NAME)) as config_in:
-        config = json.load(config_in)
-    task_output_dimensions = []
-    for task in config['tasks']:
-        if task == 'tag':
-            task_output_dimensions.append(len(label_vocab))
-        elif task == 'lm':
-            task_output_dimensions.append(len(vocab))
-        else:
-            raise NotImplementedError
-    if not existing_model:
-        model = create_model(len(vocab),
-                             config['embedding_size'],
-                             config['max_input_length'],
-                             task_output_dimensions)
-    else:
-        model = existing_model
-    loader = tf.train.Saver()
-    loader.restore(in_session, os.path.join(in_model_folder, MODEL_NAME))
-    return model, config, vocab, char_vocab, label_vocab
-
-
-def save(in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder, in_session):
-    if not os.path.exists(in_model_folder):
-        os.makedirs(in_model_folder)
-    with open(os.path.join(in_model_folder, CONFIG_NAME), 'w') as config_out:
-        json.dump(in_config, config_out)
-    with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
-        json.dump(in_vocab, vocab_out)
-    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME), 'w') as char_vocab_out:
-        json.dump(in_char_vocab, char_vocab_out)
-    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
-        json.dump(in_label_vocab, label_vocab_out)
-    saver = tf.train.Saver()
-    saver.save(in_session, os.path.join(in_model_folder, MODEL_NAME))

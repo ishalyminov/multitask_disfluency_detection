@@ -9,10 +9,9 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 
 from config import read_config, DEFAULT_CONFIG_FILE
-from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset
-from model import get_ulmfit_model, AWD_LSTM_DisfluencyDetector
-from training_utils import get_class_weight_proportional, get_sample_weight
-from dialogue_denoiser_lstm import create_model, train, save, load
+from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset, reverse_dict
+from model import AWD_LSTM_DisfluencyDetector, save, load
+from training_utils import get_class_weight_proportional, train
 
 
 def configure_argument_parser():
@@ -25,7 +24,7 @@ def configure_argument_parser():
     return parser
 
 
-def init_model(trainset, in_model_folder, resume, in_config, in_session):
+def init_model(trainset, in_model_folder, resume, in_config):
     model = None
     if not resume:
         if in_config['use_pos_tags']:
@@ -50,17 +49,19 @@ def init_model(trainset, in_model_folder, resume, in_config, in_session):
             else:
                 raise NotImplementedError
 
-        model = create_model(len(vocab),
-                             in_config['embedding_size'],
-                             in_config['max_input_length'],
-                             task_output_dimensions)
-        init = tf.global_variables_initializer()
-        in_session.run(init)
-        save(in_config, vocab, char_vocab, label_vocab, in_model_folder, in_session)
-    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
-                                                                in_session,
-                                                                existing_model=model)
-    return model, actual_config, vocab, char_vocab, label_vocab
+        rev_vocab = reverse_dict(vocab)
+        rev_label_vocab = reverse_dict(label_vocab)
+        model = AWD_LSTM_DisfluencyDetector(vocab, rev_vocab, label_vocab, rev_label_vocab, in_config)
+
+        save(model, in_config, vocab, char_vocab, label_vocab, in_model_folder)
+    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, existing_model=model)
+    return (model,
+            actual_config,
+            {'word_vocab': vocab,
+             'rev_word_vocab': rev_vocab,
+             'char_vocab': char_vocab,
+             'label_vocab': label_vocab,
+             'rev_label_vocab': rev_label_vocab})
 
 
 def main(in_dataset_folder, in_model_folder, resume, in_config):
@@ -68,40 +69,29 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
     with tf.Session() as sess:
-        model, actual_config, vocab, char_vocab, label_vocab = init_model(trainset,
-                                                                          in_model_folder,
-                                                                          resume,
-                                                                          in_config,
-                                                                          sess)
-        rev_vocab = {word_id: word
-                     for word, word_id in vocab.items()}
-        rev_label_vocab = {label_id: label
-                           for label, label_id in label_vocab.items()}
-        model = AWD_LSTM_DisfluencyDetector(vocab, rev_vocab, label_vocab, rev_label_vocab, in_config)
-
-        X_train, ys_train = make_multitask_dataset(trainset, vocab, label_vocab, actual_config)
-        X_dev, ys_dev = make_multitask_dataset(devset, vocab, label_vocab, actual_config)
-        X_test, ys_test = make_multitask_dataset(testset, vocab, label_vocab, actual_config)
+        model, actual_config, vocabs = init_model(trainset, in_model_folder, resume, in_config)
+        X_train, ys_train = make_multitask_dataset(trainset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+        X_dev, ys_dev = make_multitask_dataset(devset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+        X_test, ys_test = make_multitask_dataset(testset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
 
         y_train_flattened = np.argmax(ys_train[0], axis=-1)
         class_weight = get_class_weight_proportional(y_train_flattened,
                                                      smoothing_coef=actual_config['class_weight_smoothing_coef'])
 
         scaler = MinMaxScaler(feature_range=(1, 5))
-        class_weight_vector = scaler.fit_transform(np.array(map(itemgetter(1),
-                                                                sorted(class_weight.items(), key=itemgetter(0)))).reshape(-1, 1)).flatten()
-
+        label_freqs = list(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0))))
+        class_weight_vector = scaler.fit_transform(np.array(label_freqs).reshape(-1, 1)).flatten()
 
         train(model,
               (X_train, ys_train),
               (X_dev, ys_dev),
               (X_test, ys_test),
-              [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
+              [(vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab']),
+               (vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab'])],
               in_model_folder,
               actual_config['epochs_number'],
               actual_config,
-              sess,
-              class_weights=[class_weight_vector, np.ones(len(vocab))],
+              class_weights=[class_weight_vector, np.ones(len(vocabs['word_vocab']))],
               task_weights=config['task_weights'])
 
 

@@ -1,7 +1,24 @@
+import json
+import os
+import random
+
+import numpy as np
 import torch
 import fastai
-from fastai.text import language_model_learner, AWD_LSTM, get_language_model, untar_data, pickle, convert_weights, \
-    LinearDecoder, SequentialRNN
+from fastai.text import AWD_LSTM, get_language_model, untar_data, pickle, convert_weights, LinearDecoder, \
+    awd_lstm_lm_config
+
+from data_utils import reverse_dict
+
+VOCABULARY_NAME = 'vocab.json'
+CHAR_VOCABULARY_NAME = 'char_vocab.json'
+LABEL_VOCABULARY_NAME = 'label_vocab.json'
+EVAL_LABEL_VOCABULARY_NAME = 'eval_label_vocab.json'
+CONFIG_NAME = 'config.json'
+
+random.seed(273)
+np.random.seed(273)
+torch.manual_seed(273)
 
 
 def get_ulmfit_model(in_rev_vocab):
@@ -21,35 +38,56 @@ def get_ulmfit_model(in_rev_vocab):
     return model
 
 
+def load(in_model_folder, existing_model=None):
+    with open(os.path.join(in_model_folder, VOCABULARY_NAME)) as vocab_in:
+        vocab = json.load(vocab_in)
+    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME)) as char_vocab_in:
+        char_vocab = json.load(char_vocab_in)
+    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME)) as label_vocab_in:
+        label_vocab = json.load(label_vocab_in)
+    with open(os.path.join(in_model_folder, CONFIG_NAME)) as config_in:
+        config = json.load(config_in)
+    task_output_dimensions = []
+    for task in config['tasks']:
+        if task == 'tag':
+            task_output_dimensions.append(len(label_vocab))
+        elif task == 'lm':
+            task_output_dimensions.append(len(vocab))
+        else:
+            raise NotImplementedError
+    if not existing_model:
+        model = AWD_LSTM_DisfluencyDetector(vocab, reverse_dict(vocab), label_vocab, reverse_dict(label_vocab), config)
+    else:
+        model = existing_model
+    model.load_state_dict(torch.load(os.path.join(in_model_folder, AWD_LSTM_DisfluencyDetector.MODEL_FILE)))
+    return model, config, vocab, char_vocab, label_vocab
+
+
+def save(in_model, in_config, in_vocab, in_char_vocab, in_label_vocab, in_model_folder):
+    if not os.path.exists(in_model_folder):
+        os.makedirs(in_model_folder)
+    with open(os.path.join(in_model_folder, CONFIG_NAME), 'w') as config_out:
+        json.dump(in_config, config_out)
+    with open(os.path.join(in_model_folder, VOCABULARY_NAME), 'w') as vocab_out:
+        json.dump(in_vocab, vocab_out)
+    with open(os.path.join(in_model_folder, CHAR_VOCABULARY_NAME), 'w') as char_vocab_out:
+        json.dump(in_char_vocab, char_vocab_out)
+    with open(os.path.join(in_model_folder, LABEL_VOCABULARY_NAME), 'w') as label_vocab_out:
+        json.dump(in_label_vocab, label_vocab_out)
+    torch.save(in_model.state_dict(), os.path.join(in_model_folder, AWD_LSTM_DisfluencyDetector.MODEL_FILE))
+
+
 class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
+    MODEL_FILE = 'model.pth'
+
     def __init__(self, in_word_vocab, in_word_rev_vocab, in_disf_tag_vocab, in_disf_tag_rev_vocab, in_config):
         torch.nn.Module.__init__(self)
         self.awd_lstm_lm = get_ulmfit_model(in_word_rev_vocab)
-        awd_lstm = self.awd_lstm_lm._modules['0']
-        disfluency_decoder = LinearDecoder(len(in_disf_tag_vocab), in_config['embedding_size'], output_p=0.1)
-        self.disfluency_tag_predictor = SequentialRNN(awd_lstm, disfluency_decoder)
+        self.disf_tag_decoder = LinearDecoder(len(in_disf_tag_vocab), awd_lstm_lm_config['emb_sz'], output_p=0.1)
 
-    def forward(self):
-        pass
+    def forward(self, in_x):
+        import pdb; pdb.set_trace()
+        lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(in_x)
+        disf_decoded, _, _ = self.disf_tag_decoder((raw_lstm_outputs, lstm_outputs_dropped_out))
+        return [disf_decoded, lm_decoded]
 
-    def create_model(in_vocab_size, in_cell_size, ):
-        X = tf.placeholder(tf.int32, [None, in_max_input_length], name='X')
-        ys_for_tasks = [tf.placeholder(tf.float32, [None, task_i_output_dimensions], name='y_{}'.format(task_idx))
-                        for task_idx, task_i_output_dimensions in enumerate(in_task_output_dimensions)]
-        embeddings = tf.Variable(tf.random_uniform([in_vocab_size, in_cell_size], -1.0, 1.0),
-                                 name='emb')
-        emb = tf.nn.embedding_lookup(embeddings, X)
-
-        lstm_cell = rnn.BasicLSTMCell(in_cell_size, forget_bias=1.0, name='lstm')
-        outputs, states = tf.nn.dynamic_rnn(lstm_cell, emb, dtype=tf.float32)
-
-        W_for_tasks = [tf.Variable(tf.random_normal([in_cell_size, task_i_output_dim]),
-                                   name='W_{}'.format(task_idx))
-                       for task_idx, task_i_output_dim in enumerate(in_task_output_dimensions)]
-        b_for_tasks = [tf.Variable(tf.random_normal([task_i_output_dim]),
-                                   name='bias_{}'.format(task_idx))
-                       for task_idx, task_i_output_dim in enumerate(in_task_output_dimensions)]
-
-        task_outputs = [tf.add(tf.matmul(outputs[:, -1, :], W_task), b_task)
-                        for W_task, b_task in zip(W_for_tasks, b_for_tasks)]
-        return X, tuple(ys_for_tasks), task_outputs
