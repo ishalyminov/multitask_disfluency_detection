@@ -1,12 +1,12 @@
 import json
 import os
 import random
+import pickle
 
 import numpy as np
 import torch
 import fastai
-from fastai.text import AWD_LSTM, get_language_model, untar_data, pickle, convert_weights, LinearDecoder, \
-    awd_lstm_lm_config
+from fastai.text import AWD_LSTM, get_language_model, untar_data, convert_weights, LinearDecoder, awd_lstm_lm_config
 
 from data_utils import reverse_dict
 
@@ -86,8 +86,7 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
         self.disf_tag_decoder = LinearDecoder(len(in_disf_tag_vocab), awd_lstm_lm_config['emb_sz'], output_p=0.1)
 
     def forward(self, in_x):
-        import pdb; pdb.set_trace()
         lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(in_x)
         disf_decoded, _, _ = self.disf_tag_decoder((raw_lstm_outputs, lstm_outputs_dropped_out))
-        return [disf_decoded, lm_decoded]
+        return [disf_decoded[:, -1, :], lm_decoded[:, -1, :]]
 

@@ -69,7 +69,7 @@ def create_contexts(in_tokens, in_max_input_length):
     return contexts
 
 
-def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
+def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config, categorical_targets=False):
     utterances, contexts = [], []
     for idx, row in in_dataset.iterrows():
         if in_config['use_pos_tags']:
@@ -89,12 +89,18 @@ def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config):
         if task == 'tag':
             labels = vectorize_sequences(in_dataset['tags'], in_label_vocab)
             labels = list(chain(*labels))
-            y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
+            if categorical_targets:
+                y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_label_vocab))
+            else:
+                y_i = labels
         elif task == 'lm':
             label_sequences = [utterance[1:] + [PAD] for utterance in utterances]
             labels = vectorize_sequences(label_sequences, in_vocab)
             labels = list(chain(*labels))
-            y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_vocab))
+            if categorical_targets:
+                y_i = tf.keras.utils.to_categorical(labels, num_classes=len(in_vocab))
+            else:
+                yi = labels
         else:
             raise NotImplementedError
         ys_for_tasks.append(y_i)

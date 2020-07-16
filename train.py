@@ -4,7 +4,6 @@ from operator import itemgetter
 
 import pandas as pd
 import numpy as np
-import tensorflow as tf
 
 from sklearn.preprocessing import MinMaxScaler
 
@@ -68,31 +67,29 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
     trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
-    with tf.Session() as sess:
-        model, actual_config, vocabs = init_model(trainset, in_model_folder, resume, in_config)
-        X_train, ys_train = make_multitask_dataset(trainset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
-        X_dev, ys_dev = make_multitask_dataset(devset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
-        X_test, ys_test = make_multitask_dataset(testset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+    model, actual_config, vocabs = init_model(trainset, in_model_folder, resume, in_config)
+    X_train, ys_train = make_multitask_dataset(trainset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+    X_dev, ys_dev = make_multitask_dataset(devset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+    X_test, ys_test = make_multitask_dataset(testset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
 
-        y_train_flattened = np.argmax(ys_train[0], axis=-1)
-        class_weight = get_class_weight_proportional(y_train_flattened,
-                                                     smoothing_coef=actual_config['class_weight_smoothing_coef'])
+    class_weight = get_class_weight_proportional(ys_train[0],
+                                                 smoothing_coef=actual_config['class_weight_smoothing_coef'])
 
-        scaler = MinMaxScaler(feature_range=(1, 5))
-        label_freqs = list(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0))))
-        class_weight_vector = scaler.fit_transform(np.array(label_freqs).reshape(-1, 1)).flatten()
+    scaler = MinMaxScaler(feature_range=(1, 5))
+    label_freqs = list(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0))))
+    class_weight_vector = scaler.fit_transform(np.array(label_freqs).reshape(-1, 1)).flatten()
 
-        train(model,
-              (X_train, ys_train),
-              (X_dev, ys_dev),
-              (X_test, ys_test),
-              [(vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab']),
-               (vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab'])],
-              in_model_folder,
-              actual_config['epochs_number'],
-              actual_config,
-              class_weights=[class_weight_vector, np.ones(len(vocabs['word_vocab']))],
-              task_weights=config['task_weights'])
+    train(model,
+          (X_train, ys_train),
+          (X_dev, ys_dev),
+          (X_test, ys_test),
+          [(vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab']),
+           (vocabs['word_vocab'], vocabs['label_vocab'], vocabs['rev_label_vocab'])],
+          in_model_folder,
+          actual_config['epochs_number'],
+          actual_config,
+          class_weights=[class_weight_vector, np.ones(len(vocabs['word_vocab']))],
+          task_weights=config['task_weights'])
 
 
 if __name__ == '__main__':

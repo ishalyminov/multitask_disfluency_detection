@@ -32,7 +32,9 @@ def train(in_model,
     tag_mapping = get_tag_mapping(in_task_vocabs[0][1])
 
     if class_weights is None:
-        class_weights = [np.ones(y_train_i.shape[1]) for y_train_i in y_train_for_tasks]
+        class_weights = [torch.FloatTensor(np.ones(y_train_i.shape[1])) for y_train_i in y_train_for_tasks]
+    else:
+        class_weights = [torch.FloatTensor(weights_i) for weights_i in class_weights]
     if task_weights is None:
         task_weights = np.ones(len(y_train_for_tasks))
     # Define loss and optimizer
@@ -57,7 +59,7 @@ def train(in_model,
         for batch_x, batch_y in batch_gen:
             batch_pred = in_model(batch_x)
             train_batch_loss = calculate_loss(batch_pred,
-                                              batch_y,
+                                              [torch.LongTensor(batch_y_i) for batch_y_i in batch_y],
                                               class_weights,
                                               task_weights=task_weights)
             train_batch_loss.backward()
@@ -103,18 +105,22 @@ def evaluate(in_model,
 
     batch_losses, batch_accuracies = [], []
     y_pred_main_task = np.zeros(X_test.shape[0])
+
     for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
         y_pred_batch = in_model(torch.LongTensor(batch_x))
-        loss_batch = calculate_loss(y_pred_batch, batch_y, in_class_weights, task_weights=in_task_weights)
-        y_predicted = [np.argmax(logits_i, 1) for logits_i in y_pred_batch]
-        y_true = [np.argmax(y_i, 1) for y_i in batch_y]
-        acc_batch = np.mean(y_predicted == y_true)
+        loss_batch = calculate_loss(y_pred_batch,
+                                    [torch.LongTensor(batch_y_i) for batch_y_i in batch_y],
+                                    in_class_weights,
+                                    task_weights=in_task_weights)
+        y_predicted = [torch.argmax(logits_i, 1) for logits_i in y_pred_batch]
+        acc_batch = np.mean([y_predicted_i.detach().numpy() == batch_y_i
+                             for y_predicted_i, batch_y_i in zip(y_predicted, batch_y)])
 
-        y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
+        y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_predicted[0].detach().numpy()
         batch_losses.append(loss_batch)
         batch_accuracies.append(acc_batch)
 
-    y_gold_main_task = np.argmax(y_test_for_tasks[0], -1)
+    y_gold_main_task = y_test_for_tasks[0]
     result_map = {'loss': np.mean(batch_losses), 'acc': np.mean(batch_accuracies)}
     for class_name, class_ids in in_tag_map.iteritems():
         result_map['f1_' + class_name] = sk.metrics.f1_score(y_true=y_gold_main_task,
@@ -188,7 +194,7 @@ def dynamic_importance_sampling_random_batch_generator(data,
 
 def batch_generator(X, y_for_tasks, batch_size):
     batch_start_idx = 0
-    total_batches_number = X.shape[0] / batch_size
+    total_batches_number = X.shape[0] // batch_size
     batch_counter = 0
     while batch_start_idx < X.shape[0]:
         if batch_counter % 1000 == 0:
@@ -235,6 +241,6 @@ def calculate_loss(in_logits_for_tasks,
     '''
     losses_weighted = [loss_i * task_weight_i for loss_i, task_weight_i in zip(losses, task_weights)]
     # aux_losses = [l for l in [loss_l2, loss_weight_change] if l is not None]
-    cost = torch.mean(losses_weighted)
+    cost = torch.mean(torch.Tensor(losses_weighted))
 
     return cost
