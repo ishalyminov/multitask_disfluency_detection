@@ -21,8 +21,8 @@ np.random.seed(273)
 torch.manual_seed(273)
 
 
-def get_ulmfit_model(in_rev_vocab):
-    model = get_language_model(AWD_LSTM, len(in_rev_vocab))
+def get_ulmfit_model(in_vocab):
+    model = get_language_model(AWD_LSTM, len(in_vocab))
     model_path = untar_data(fastai.text.learner._model_meta[AWD_LSTM]['url'], data=False)
     fnames = [list(model_path.glob(f'*.{ext}'))[0] for ext in ['pth', 'pkl']]
 
@@ -33,7 +33,7 @@ def get_ulmfit_model(in_rev_vocab):
     wgts = torch.load(wgts_fname, map_location=lambda storage, loc: storage)
     if 'model' in wgts:
         wgts = wgts['model']
-    wgts = convert_weights(wgts, old_stoi, in_rev_vocab)
+    wgts = convert_weights(wgts, old_stoi, in_vocab)
     model.load_state_dict(wgts)
     return model
 
@@ -82,11 +82,30 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
 
     def __init__(self, in_word_vocab, in_word_rev_vocab, in_disf_tag_vocab, in_disf_tag_rev_vocab, in_config):
         torch.nn.Module.__init__(self)
-        self.awd_lstm_lm = get_ulmfit_model(in_word_rev_vocab)
+        self.awd_lstm_lm = get_ulmfit_model(in_word_vocab)
         self.disf_tag_decoder = LinearDecoder(len(in_disf_tag_vocab), awd_lstm_lm_config['emb_sz'], output_p=0.1)
+        if torch.cuda.is_available():
+            self.to(torch.device('cuda'))
 
     def forward(self, in_x):
+        self.awd_lstm_lm.reset()
         lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(in_x)
         disf_decoded, _, _ = self.disf_tag_decoder((raw_lstm_outputs, lstm_outputs_dropped_out))
         return [disf_decoded[:, -1, :], lm_decoded[:, -1, :]]
 
+
+class MultitaskDisfluencyDetector(torch.nn.Module):
+    def __init__(self, in_word_vocab, in_disf_vocab, in_config):
+        torch.nn.Module.__init__(self)
+        self.emb = torch.nn.Embedding(len(in_word_vocab), 256, padding_idx=1)
+        self.lstm = torch.nn.LSTM(256, 256, 1, batch_first=True)
+        self.lm_head = torch.nn.Linear(256, len(in_word_vocab))
+        self.disf_head = torch.nn.Linear(256, len(in_disf_vocab))
+        if torch.cuda.is_available():
+            self.to(torch.device('cuda'))
+
+    def forward(self, in_x):
+        encoding = self.lstm(self.emb(in_x))[1][0]
+        disf_tag = self.disf_head(encoding).squeeze(0)
+        lm_tag = self.lm_head(encoding).squeeze(0)
+        return [disf_tag, lm_tag]

@@ -8,7 +8,7 @@ Model architecture
 Getting started
 ==
 
-1. Set up the environment (below are steps for Conda):
+1. Set up the environment (below are steps for Conda), convert deep_disfluency library to Python3:
 
 ```bash
 $ cd code-directory
@@ -16,6 +16,7 @@ $ git submodule update --init
 $ conda create -n multitask_disfluency python=2.7
 $ conda activate multitask_disfluency
 $ pip install -r requirements.txt
+$ 2to3 -w deep_disfluency
 ```
 
 2. Preprocess the Switchboard dataset for training:

@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from config import read_config, DEFAULT_CONFIG_FILE
 from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset, reverse_dict
-from model import AWD_LSTM_DisfluencyDetector, save, load
+from model import AWD_LSTM_DisfluencyDetector, MultitaskDisfluencyDetector, save, load
 from training_utils import get_class_weight_proportional, train
 
 
@@ -51,6 +51,7 @@ def init_model(trainset, in_model_folder, resume, in_config):
         rev_vocab = reverse_dict(vocab)
         rev_label_vocab = reverse_dict(label_vocab)
         model = AWD_LSTM_DisfluencyDetector(vocab, rev_vocab, label_vocab, rev_label_vocab, in_config)
+        #model = MultitaskDisfluencyDetector(vocab, label_vocab, in_config)
 
         save(model, in_config, vocab, char_vocab, label_vocab, in_model_folder)
     model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, existing_model=model)

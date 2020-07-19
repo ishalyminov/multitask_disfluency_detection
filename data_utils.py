@@ -6,10 +6,11 @@ from itertools import chain
 
 import tensorflow as tf
 
-PAD_ID = 0
-UNK_ID = 1
-PAD = '_PAD'
-UNK = '_UNK'
+# for compatibility with AWD-LSTM
+PAD_ID = 1
+UNK_ID = 0
+PAD = 'xxpad'
+UNK = 'xxunk'
 
 
 def reverse_dict(in_dict):

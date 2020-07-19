@@ -11,9 +11,9 @@ from deep_disfluency.utils.tools import convert_from_eval_tags_to_inc_disfluency
 
 def get_tag_mapping(in_tag_map, mode='deep_disfluency'):
     if mode == 'deep_disfluency':
-        grouped_tag_map = {'e': filter(lambda x: x.startswith('<e'), in_tag_map.keys()),
-                           'rm': filter(lambda x: x.startswith('<rm'), in_tag_map.keys())}
-        result = {name: map(in_tag_map.get, tags) for name, tags in grouped_tag_map.items()}
+        grouped_tag_map = {'e': list(filter(lambda x: x.startswith('<e'), in_tag_map.keys())),
+                           'rm': list(filter(lambda x: x.startswith('<rm'), in_tag_map.keys()))}
+        result = {name: list(map(in_tag_map.get, tags)) for name, tags in grouped_tag_map.items()}
     else:
         result = {name: [idx] for name, idx in in_tag_map.iteritems()}
     return result
