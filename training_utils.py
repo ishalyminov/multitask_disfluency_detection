@@ -9,7 +9,6 @@ import torch
 from sklearn import metrics
 from sklearn.utils.class_weight import compute_class_weight
 from torch.nn import CrossEntropyLoss
-from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
@@ -45,7 +44,7 @@ def train(in_model,
     starting_lr = config['lr']
     lr_decay = config['lr_decay']
 
-    optimizer = SGD(in_model.parameters(), lr=starting_lr, weight_decay=config['l2_coef'])
+    optimizer = getattr(torch.optim, config['optimizer'])(in_model.parameters(), lr=starting_lr, weight_decay=config['l2_coef'])
     learning_rate_scheduler = CosineAnnealingLR(optimizer, 2000000)
 
     _, dev_eval = evaluate(in_model,
