@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import os
 from collections import defaultdict
-from math import sin, pi
+from math import sin, pi, ceil
 
 import numpy as np
 import torch
@@ -209,7 +209,7 @@ def dynamic_importance_sampling_random_batch_generator(data,
 
 def batch_generator(X, y_for_tasks, batch_size):
     batch_start_idx = 0
-    total_batches_number = X.shape[0] // batch_size
+    total_batches_number = ceil(X.shape[0] / batch_size)
     for _ in tqdm(range(total_batches_number)):
         batch = (X[batch_start_idx: batch_start_idx + batch_size],
                  [y_i[batch_start_idx: batch_start_idx + batch_size] for y_i in y_for_tasks])

@@ -97,10 +97,12 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
 
     def predict(self, in_x):
         logits_for_tasks = self.forward(in_x)
-        predicted_ids = [torch.argmax(logits_i) for logits_i in logits_for_tasks]
-        predicted_tokens = [list(map(rev_label_vocab.get, predicted_ids_i))
-                            for rev_label_vocab, predicted_ids_i in zip([self.disf_tag_rev_vocab, self.word_rev_vocab],
-                                                                        predicted_ids)]
+        predicted_ids = [torch.argmax(logits_i, dim=1) for logits_i in logits_for_tasks]
+        predicted_tokens = []
+        for rev_label_vocab, predicted_ids_i in zip([self.disf_tag_rev_vocab, self.word_rev_vocab], predicted_ids):
+            predicted_tokens_i = [rev_label_vocab.get(token)
+                                  for token in predicted_ids_i.cpu().numpy()]
+            predicted_tokens.append(predicted_tokens_i)
         return predicted_tokens
 
 

@@ -31,7 +31,7 @@ def configure_argument_parser():
 
 
 def main(in_dataset_file, in_model_folder, in_mode):
-    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
+    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder)
     rev_vocab = {word_id: word for word, word_id in vocab.items()} 
     rev_label_vocab = {label_id: label for label, label_id in label_vocab.items()}
     if in_mode == 'deep_disfluency':

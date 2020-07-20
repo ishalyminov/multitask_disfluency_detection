@@ -1,3 +1,18 @@
+from copy import deepcopy
+
+import torch
+import pandas as pd
+
+from deep_disfluency.evaluation.eval_utils import (get_tag_data_from_corpus_file,
+                                                   rename_all_repairs_in_line_with_index)
+from deep_disfluency.evaluation.disf_evaluation import (incremental_output_disfluency_eval_from_file,
+                                                        final_output_disfluency_eval_from_file)
+from deep_disfluency.utils.tools import (convert_from_eval_tags_to_inc_disfluency_tags,
+                                         convert_from_inc_disfluency_tags_to_eval_tags)
+from data_utils import make_multitask_dataset
+from training_utils import batch_generator
+
+
 def create_fake_timings(in_tokens_number):
     return list(zip(map(float, range(0, in_tokens_number)),
                     map(float, range(1, in_tokens_number + 1))))
@@ -336,5 +351,8 @@ def predict_dataset(in_model, in_dataset, batch_size=32):
 
     y_pred_main_task = []
     for batch_idx, (batch_x, batch_ys) in enumerate(batch_gen):
+        batch_x = torch.LongTensor(batch_x)
+        if torch.cuda.is_available():
+            batch_x = batch_x.to(torch.device('cuda'))
         y_pred_main_task += in_model.predict(batch_x)[0]
     return y_pred_main_task
