@@ -82,6 +82,8 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
 
     def __init__(self, in_word_vocab, in_word_rev_vocab, in_disf_tag_vocab, in_disf_tag_rev_vocab, in_config):
         torch.nn.Module.__init__(self)
+        self.word_rev_vocab = in_word_rev_vocab
+        self.disf_tag_rev_vocab = in_disf_tag_rev_vocab
         self.awd_lstm_lm = get_ulmfit_model(in_word_vocab)
         self.disf_tag_decoder = LinearDecoder(len(in_disf_tag_vocab), awd_lstm_lm_config['emb_sz'], output_p=0.1)
         if torch.cuda.is_available():
@@ -92,6 +94,14 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
         lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(in_x)
         disf_decoded, _, _ = self.disf_tag_decoder((raw_lstm_outputs, lstm_outputs_dropped_out))
         return [disf_decoded[:, -1, :], lm_decoded[:, -1, :]]
+
+    def predict(self, in_x):
+        logits_for_tasks = self.forward(in_x)
+        predicted_ids = [torch.argmax(logits_i) for logits_i in logits_for_tasks]
+        predicted_tokens = [list(map(rev_label_vocab.get, predicted_ids_i))
+                            for rev_label_vocab, predicted_ids_i in zip([self.disf_tag_rev_vocab, self.word_rev_vocab],
+                                                                        predicted_ids)]
+        return predicted_tokens
 
 
 class MultitaskDisfluencyDetector(torch.nn.Module):
