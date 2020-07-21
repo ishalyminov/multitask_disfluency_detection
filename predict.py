@@ -20,7 +20,7 @@ def main(in_dataset_file, in_model_folder, in_result_file):
     dataset = pd.read_json(in_dataset_file)
 
     with tf.Session() as sess:
-       model, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
+       model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
        rev_label_vocab = {label_id: label
                           for label, label_id in label_vocab.iteritems()}
        print 'Done loading'
