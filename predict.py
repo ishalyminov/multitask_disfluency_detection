@@ -24,7 +24,7 @@ def main(in_dataset_file, in_model_folder, in_result_file):
                           for label, label_id in label_vocab.iteritems()}
        print 'Done loading'
        X, y = make_dataset(dataset, vocab, label_vocab, actual_config)
-       y_pred = predict(model, (X, y), rev_label_vocab, sess)
+       y_pred = predict(model, (X, y), [rev_label_vocab], sess)
     tags_predicted = []
     tag_idx = 0
     for tag_seq in dataset['tags']:

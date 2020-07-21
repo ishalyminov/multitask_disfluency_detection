@@ -283,7 +283,7 @@ def predict(in_model, in_dataset, in_vocabs_for_tasks, in_session, batch_size=32
                                        feed_dict={X: batch_x})
         y_pred_main_task[batch_idx * batch_size: (batch_idx + 1) * batch_size] = y_pred_batch[0]
 
-    rev_label_vocab_main_task = in_vocabs_for_tasks[0][2]
+    rev_label_vocab_main_task = in_vocabs_for_tasks[0]
     predictions = map(rev_label_vocab_main_task.get, y_pred_main_task) 
     return predictions
 
