@@ -59,7 +59,6 @@ singledispatch==3.4.0.3
 six==1.11.0
 sklearn==0.0
 tensorflow==1.15.0
-tensorflow-tensorboard==0.4.0rc3
 termcolor==1.1.0
 terminado==0.8.1
 testpath==0.4.2

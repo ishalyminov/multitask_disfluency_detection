@@ -3,9 +3,8 @@ from argparse import ArgumentParser
 import pandas as pd
 import tensorflow as tf
 
-from dialogue_denoiser_lstm import (predict,
-                                    load,
-                                    make_dataset)
+from dialogue_denoiser_lstm import predict, load
+from data_utils import make_dataset
 
 
 def configure_argument_parser():
@@ -24,7 +23,7 @@ def main(in_dataset_file, in_model_folder, in_result_file):
        rev_label_vocab = {label_id: label
                           for label, label_id in label_vocab.iteritems()}
        print 'Done loading'
-       X, y = make_dataset(dataset, vocab, label_vocab)
+       X, y = make_dataset(dataset, vocab, label_vocab, actual_config)
        y_pred = predict(model, (X, y), rev_label_vocab, sess)
     tags_predicted = []
     tag_idx = 0
