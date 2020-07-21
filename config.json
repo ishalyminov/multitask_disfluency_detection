@@ -1,6 +1,6 @@
 {
   "embedding_size": 128,
-  "use_pos_tags": false,
+  "use_pos_tags": true,
   "batch_size": 32,
   "epochs_number": 999999999,
   "optimizer": "Adam",
@@ -8,6 +8,7 @@
   "lr_decay": 0.9,
   "l2_coef": 0.00001,
   "dropout_keep_prob": 0.7,
+  "model_class": "DualEncoder_AWD_LSTM_DisfluencyDetector",
   "early_stopping_threshold": 100,
   "max_vocabulary_size": 20000,
   "max_input_length": 10,

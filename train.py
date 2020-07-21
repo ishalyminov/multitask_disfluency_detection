@@ -7,9 +7,9 @@ import numpy as np
 
 from sklearn.preprocessing import MinMaxScaler
 
+import model
 from config import read_config, DEFAULT_CONFIG_FILE
 from data_utils import make_vocabulary, make_char_vocabulary, make_multitask_dataset, reverse_dict
-from model import AWD_LSTM_DisfluencyDetector, MultitaskDisfluencyDetector, save, load
 from training_utils import get_class_weight_proportional, train
 
 
@@ -26,15 +26,10 @@ def configure_argument_parser():
 def init_model(trainset, in_model_folder, resume, in_config):
     model = None
     if not resume:
-        if in_config['use_pos_tags']:
-            utterances = []
-            for utterance, postags in zip(trainset['utterance'], trainset['pos']):
-                utterance_augmented = ['{}_{}'.format(token, pos)
-                                       for token, pos in zip(utterance, postags)]
-                utterances.append(utterance_augmented)
-        else:
-            utterances = trainset['utterance']
+        utterances = trainset['utterance']
+        postags = trainset['pos']
         vocab, _ = make_vocabulary(utterances, in_config['max_vocabulary_size'])
+        pos_vocab, _ = make_vocabulary(postags, in_config['max_vocabulary_size'])
         char_vocab = make_char_vocabulary()
         label_vocab, _ = make_vocabulary(trainset['tags'].values,
                                          in_config['max_vocabulary_size'],
@@ -50,15 +45,24 @@ def init_model(trainset, in_model_folder, resume, in_config):
 
         rev_vocab = reverse_dict(vocab)
         rev_label_vocab = reverse_dict(label_vocab)
-        model = AWD_LSTM_DisfluencyDetector(vocab, rev_vocab, label_vocab, rev_label_vocab, in_config)
-        #model = MultitaskDisfluencyDetector(vocab, label_vocab, in_config)
+        rev_pos_vocab = reverse_dict(pos_vocab)
+        model = getattr(model, in_config['model_class'])(vocab,
+                                                         rev_vocab,
+                                                         pos_vocab,
+                                                         reverse_pos_vocab,
+                                                         label_vocab,
+                                                         rev_label_vocab,
+                                                         in_config)
 
-        save(model, in_config, vocab, char_vocab, label_vocab, in_model_folder)
-    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, existing_model=model)
+        model.save(model, in_config, vocab, pos_vocab, char_vocab, label_vocab, in_model_folder)
+    model, actual_config, vocab, pos_vocab, char_vocab, label_vocab = model.load(in_model_folder,
+                                                                                 existing_model=model)
     return (model,
             actual_config,
             {'word_vocab': vocab,
              'rev_word_vocab': rev_vocab,
+             'pos_vocab': pos_vocab,
+             'rev_pos_vocab': rev_pos_vocab,
              'char_vocab': char_vocab,
              'label_vocab': label_vocab,
              'rev_label_vocab': rev_label_vocab})

@@ -70,20 +70,23 @@ def create_contexts(in_tokens, in_max_input_length):
     return contexts
 
 
-def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config, categorical_targets=False):
-    utterances, contexts = [], []
+def make_multitask_dataset(in_dataset, in_vocab, in_pos, in_label_vocab, in_config, categorical_targets=False):
+    utterances, contexts, contexts_pos = [], [], []
     for idx, row in in_dataset.iterrows():
-        if in_config['use_pos_tags']:
-            utterance = ['{}_{}'.format(token, pos)
-                         for token, pos in zip(row['utterance'], row['pos'])]
-        else:
-            utterance = row['utterance']
+        utterance, utterance_pos = row['utterance'], row['pos']
         utterances.append(utterance)
         current_contexts = create_contexts(utterance,
                                            in_config['max_input_length'])
+        current_pos_contexts = create_contexts(utterance_pos,
+                                               in_config['max_input_length'])
+        assert len(current_contexts) == len(current_pos_contexts)
         contexts += current_contexts
+        contexts_pos += current_pos_contexts
     tokens_vectorized = vectorize_sequences(contexts, in_vocab)
     tokens_padded = pad_sequences(tokens_vectorized, in_config['max_input_length'])
+
+    pos_vectorized = vectorize_sequences(contexts, in_pos_vocab)
+    pos_padded = pad_sequences(pos_vectorized, in_config['max_input_length'])
 
     ys_for_tasks = []
     for task in in_config['tasks']:
@@ -105,7 +108,7 @@ def make_multitask_dataset(in_dataset, in_vocab, in_label_vocab, in_config, cate
         else:
             raise NotImplementedError
         ys_for_tasks.append(y_i)
-    return tokens_padded, ys_for_tasks
+    return [tokens_padded, pos_padded], ys_for_tasks
 
 
 def make_dataset(in_dataset, in_vocab, in_label_vocab, in_config):

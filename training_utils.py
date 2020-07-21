@@ -59,9 +59,9 @@ def train(in_model,
         batch_gen = batch_generator(X_train, y_train_for_tasks, config['batch_size'])
         train_batch_losses = []
         for batch_x, batch_y in batch_gen:
-            batch_x = torch.LongTensor(batch_x)
+            batch_x = [torch.LongTensor(batch_x_i) fro batch_x_i in batch_x]
             if torch.cuda.is_available():
-                batch_x = batch_x.to(torch.device('cuda'))
+                batch_x = [batch_x_i.to(torch.device('cuda')) for batch_x_i in batch_x]
             in_model.train()
             batch_pred = in_model(batch_x)
             batch_y_tensors = [torch.LongTensor(batch_y_i) for batch_y_i in batch_y]
@@ -116,9 +116,9 @@ def evaluate(in_model,
     y_pred_main_task = np.zeros(X_test.shape[0])
 
     for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
-        batch_tensor = torch.LongTensor(batch_x)
+        batch_tensor = [torch.LongTensor(batch_x_i) for batch_x_i in batch_x]
         if torch.cuda.is_available():
-            batch_tensor = batch_tensor.to(torch.device('cuda'))
+            batch_tensor = [batch_tensor_i.to(torch.device('cuda')) for batch_tensor_i in batch_tensor]
         y_pred_batch = in_model(batch_tensor)
         batch_y_tensors = [torch.LongTensor(batch_y_i) for batch_y_i in batch_y]
         if torch.cuda.is_available():
@@ -209,13 +209,13 @@ def dynamic_importance_sampling_random_batch_generator(data,
 
 def batch_generator(X, y_for_tasks, batch_size):
     batch_start_idx = 0
-    total_batches_number = ceil(X.shape[0] / batch_size)
+    total_batches_number = ceil(X[0].shape[0] / batch_size)
     for _ in tqdm(range(total_batches_number)):
-        batch = (X[batch_start_idx: batch_start_idx + batch_size],
+        batch = ([X_i[batch_start_idx: batch_start_idx + batch_size] for X_i in X],
                  [y_i[batch_start_idx: batch_start_idx + batch_size] for y_i in y_for_tasks])
         batch_start_idx += batch_size
         yield batch
-        if not (batch_start_idx < X.shape[0]):
+        if not (batch_start_idx < X[0].shape[0]):
             break
 
 
@@ -256,4 +256,3 @@ def calculate_loss(in_logits_for_tasks,
     # cost = torch.autograd.Variable(torch.sum(torch.Tensor(losses_weighted)), requires_grad=True)
 
     return losses[0] * task_weights[0] + losses[1] * task_weights[1]
-
