@@ -376,7 +376,7 @@ def predict_increco_file(in_model,
                                              in_config)
     predictions = predict(in_model,
                           (X, ys_for_tasks),
-                          vocabs_for_tasks,
+                          [vocabs_for_tasks[0][-1]],
                           in_session)
     predictions_eval = []
     global_word_index = 0
@@ -507,7 +507,7 @@ def predict_babi_file(in_model,
                                              in_config)
     predictions = predict(in_model,
                           (X, ys_for_tasks),
-                          vocabs_for_tasks,
+                          [vocabs_for_tasks[0][-1]],
                           in_session)
     predictions_eval = []
     global_word_index = 0

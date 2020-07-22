@@ -2,9 +2,6 @@ from argparse import ArgumentParser
 import os
 import sys
 
-import matplotlib
-matplotlib.use('agg')
-
 import tensorflow as tf
 
 THIS_FILE_DIR = os.path.dirname(__file__)
@@ -31,8 +28,7 @@ def configure_argument_parser():
 
 def main(in_dataset_file, in_model_folder, in_mode):
     with tf.Session() as sess:
-        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder,
-                                                                    sess)
+        model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder, sess)
         rev_vocab = {word_id: word
                      for word, word_id in vocab.iteritems()} 
         rev_label_vocab = {label_id: label
