@@ -60,11 +60,17 @@ def load(in_model_folder, existing_model=None):
         else:
             raise NotImplementedError
     if not existing_model:
-        model = locals()(config['model_class'])(vocab, reverse_dict(vocab), label_vocab, reverse_dict(label_vocab), config)
+        model = globals()[config['model_class']](vocab,
+                                                 reverse_dict(vocab),
+                                                 pos_vocab,
+                                                 reverse_dict(pos_vocab),
+                                                 label_vocab,
+                                                 reverse_dict(label_vocab),
+                                                 config)
     else:
         model = existing_model
     model.load_state_dict(torch.load(os.path.join(in_model_folder, MODEL_FILE)))
-    return model, config, vocab, char_vocab, label_vocab
+    return model, config, vocab, pos_vocab, char_vocab, label_vocab
 
 
 def save(in_model, in_config, in_vocab, in_pos_vocab, in_char_vocab, in_label_vocab, in_model_folder):
@@ -111,15 +117,27 @@ class AWD_LSTM_DisfluencyDetector(torch.nn.Module):
 
 
 class DualEncoder_AWD_LSTM_DisfluencyDetector(torch.nn.Module):
-    def __init__(self, in_word_vocab, in_word_rev_vocab, in_disf_tag_vocab, in_disf_tag_rev_vocab, in_config):
+    def __init__(self,
+                 in_word_vocab,
+                 in_word_rev_vocab,
+                 in_pos_vocab,
+                 in_pos_rev_coab,
+                 in_disf_tag_vocab,
+                 in_disf_tag_rev_vocab,
+                 in_config):
         torch.nn.Module.__init__(self)
         self.word_rev_vocab = in_word_rev_vocab
         self.disf_tag_rev_vocab = in_disf_tag_rev_vocab
         self.awd_lstm_lm = get_ulmfit_model(in_word_vocab)
-        self.pos_tag_embedding = torch.nn.Embedding(in_config['pos_embedding_size'])
-        self.pos_tag_encoder = torch.nn.LSTM(in_config['pos_embedding_size'])
+        self.pos_tag_embedding = torch.nn.Embedding(len(in_pos_vocab), in_config['pos_embedding_size'])
+        self.pos_tag_encoder = torch.nn.LSTM(in_config['pos_embedding_size'],
+                                             in_config['pos_hidden_size'],
+                                             batch_first=True)
+        self.lm_decoder = LinearDecoder(len(in_word_vocab),
+                                        awd_lstm_lm_config['n_hid'] + in_config['pos_embedding_size'],
+                                        output_p=0.1)
         self.disf_tag_decoder = LinearDecoder(len(in_disf_tag_vocab),
-                                              awd_lstm_lm_config['emb_sz'] + in_config['pos_embedding_size'],
+                                              awd_lstm_lm_config['n_hid'] + in_config['pos_embedding_size'],
                                               output_p=0.1)
         if torch.cuda.is_available():
             self.to(torch.device('cuda'))
@@ -127,11 +145,12 @@ class DualEncoder_AWD_LSTM_DisfluencyDetector(torch.nn.Module):
     def forward(self, in_x):
         word_input, pos_input = in_x
         self.awd_lstm_lm.reset()
-        lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(word_input)
-        pos_tag_encoded = self.pos_tag_encoder(self.pos_tag_embedding(pos_input))
+        awd_lstm_lm_decoded, raw_lstm_outputs, lstm_outputs_dropped_out = self.awd_lstm_lm(word_input)
+        pos_tag_encoded, _ = self.pos_tag_encoder(self.pos_tag_embedding(pos_input))
 
-        combined_input = torch.cat([lstm_outputs_dropped_out, pos_tag_encoded], dim=-1)
-        disf_decoded, _, _ = self.disf_tag_decoder((None, combined_input))
+        combined_input = torch.cat((lstm_outputs_dropped_out[0], pos_tag_encoded), dim=-1)
+        lm_decoded, _, _ = self.lm_decoder((None, [combined_input]))
+        disf_decoded, _, _ = self.disf_tag_decoder((None, [combined_input]))
         return [disf_decoded[:, -1, :], lm_decoded[:, -1, :]]
 
     def predict(self, in_x):
@@ -160,3 +179,4 @@ class MultitaskDisfluencyDetector(torch.nn.Module):
         disf_tag = self.disf_head(encoding).squeeze(0)
         lm_tag = self.lm_head(encoding).squeeze(0)
         return [disf_tag, lm_tag]
+

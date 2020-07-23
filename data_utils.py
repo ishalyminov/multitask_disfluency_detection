@@ -70,7 +70,7 @@ def create_contexts(in_tokens, in_max_input_length):
     return contexts
 
 
-def make_multitask_dataset(in_dataset, in_vocab, in_pos, in_label_vocab, in_config, categorical_targets=False):
+def make_multitask_dataset(in_dataset, in_vocab, in_pos_vocab, in_label_vocab, in_config, categorical_targets=False):
     utterances, contexts, contexts_pos = [], [], []
     for idx, row in in_dataset.iterrows():
         utterance, utterance_pos = row['utterance'], row['pos']

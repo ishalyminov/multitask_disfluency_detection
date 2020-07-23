@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
 from deep_disfluency_utils import get_tag_mapping
-from model import AWD_LSTM_DisfluencyDetector
+from model import MODEL_FILE 
 
 
 def train(in_model,
@@ -59,7 +59,7 @@ def train(in_model,
         batch_gen = batch_generator(X_train, y_train_for_tasks, config['batch_size'])
         train_batch_losses = []
         for batch_x, batch_y in batch_gen:
-            batch_x = [torch.LongTensor(batch_x_i) fro batch_x_i in batch_x]
+            batch_x = [torch.LongTensor(batch_x_i) for batch_x_i in batch_x]
             if torch.cuda.is_available():
                 batch_x = [batch_x_i.to(torch.device('cuda')) for batch_x_i in batch_x]
             in_model.train()
@@ -87,7 +87,7 @@ def train(in_model,
                          for key, value in dev_eval.items()]) + ' @lr={}'.format(optimizer.state_dict()['param_groups'][0]['lr']))
         if best_dev_f1_rm < dev_eval['f1_rm']:
             best_dev_f1_rm = dev_eval['f1_rm']
-            torch.save(in_model.state_dict(), os.path.join(in_model_folder, AWD_LSTM_DisfluencyDetector.MODEL_FILE))
+            torch.save(in_model.state_dict(), os.path.join(in_model_folder, MODEL_FILE))
             print('New best loss. Saving checkpoint')
             epochs_without_improvement = 0
         else:
@@ -113,7 +113,7 @@ def evaluate(in_model,
     batch_gen = batch_generator(X_test, y_test_for_tasks, batch_size)
 
     batch_losses, batch_accuracies = [], []
-    y_pred_main_task = np.zeros(X_test.shape[0])
+    y_pred_main_task = np.zeros(X_test[0].shape[0])
 
     for batch_idx, (batch_x, batch_y) in enumerate(batch_gen):
         batch_tensor = [torch.LongTensor(batch_x_i) for batch_x_i in batch_x]

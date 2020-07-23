@@ -98,6 +98,7 @@ def predict_increco_file(in_model,
     X, ys_for_tasks = make_multitask_dataset(dataset,
                                              vocabs_for_tasks[0][0],
                                              vocabs_for_tasks[0][1],
+                                             vocabs_for_tasks[0][2],
                                              in_config)
     predictions = predict_dataset(in_model, (X, ys_for_tasks))
     predictions_eval = []
@@ -159,6 +160,7 @@ def predict_babi_file(in_model,
     X, ys_for_tasks = make_multitask_dataset(dataset,
                                              vocabs_for_tasks[0][0],
                                              vocabs_for_tasks[0][1],
+                                             vocabs_for_tasks[0][2],
                                              in_config)
     predictions = predict_dataset(in_model, (X, ys_for_tasks))
     predictions_eval = []

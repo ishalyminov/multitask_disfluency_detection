@@ -31,17 +31,17 @@ def configure_argument_parser():
 
 
 def main(in_dataset_file, in_model_folder, in_mode):
-    model, actual_config, vocab, char_vocab, label_vocab = load(in_model_folder)
+    model, actual_config, vocab, pos_vocab, char_vocab, label_vocab = load(in_model_folder)
     rev_vocab = {word_id: word for word, word_id in vocab.items()} 
     rev_label_vocab = {label_id: label for label, label_id in label_vocab.items()}
     if in_mode == 'deep_disfluency':
         eval_result = eval_deep_disfluency(model,
-                                           [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
+                                           [(vocab, pos_vocab, label_vocab), (vocab, pos_vocab, vocab)],
                                            in_dataset_file,
                                            actual_config)
     elif in_mode == 'babi':
         eval_result = eval_babi(model,
-                                [(vocab, label_vocab, rev_label_vocab), (vocab, vocab, rev_vocab)],
+                                [(vocab, pos_vocab, label_vocab), (vocab, vocab, rev_vocab)],
                                 in_dataset_file,
                                 actual_config)
     else:

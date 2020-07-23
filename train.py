@@ -24,7 +24,7 @@ def configure_argument_parser():
 
 
 def init_model(trainset, in_model_folder, resume, in_config):
-    model = None
+    result_model = None
     if not resume:
         utterances = trainset['utterance']
         postags = trainset['pos']
@@ -46,18 +46,18 @@ def init_model(trainset, in_model_folder, resume, in_config):
         rev_vocab = reverse_dict(vocab)
         rev_label_vocab = reverse_dict(label_vocab)
         rev_pos_vocab = reverse_dict(pos_vocab)
-        model = getattr(model, in_config['model_class'])(vocab,
-                                                         rev_vocab,
-                                                         pos_vocab,
-                                                         reverse_pos_vocab,
-                                                         label_vocab,
-                                                         rev_label_vocab,
-                                                         in_config)
+        result_model = getattr(model, in_config['model_class'])(vocab,
+                                                                rev_vocab,
+                                                                pos_vocab,
+                                                                rev_pos_vocab,
+                                                                label_vocab,
+                                                                rev_label_vocab,
+                                                                in_config)
 
-        model.save(model, in_config, vocab, pos_vocab, char_vocab, label_vocab, in_model_folder)
-    model, actual_config, vocab, pos_vocab, char_vocab, label_vocab = model.load(in_model_folder,
-                                                                                 existing_model=model)
-    return (model,
+        model.save(result_model, in_config, vocab, pos_vocab, char_vocab, label_vocab, in_model_folder)
+    result_model, actual_config, vocab, pos_vocab, char_vocab, label_vocab = model.load(in_model_folder,
+                                                                                        existing_model=result_model)
+    return (result_model,
             actual_config,
             {'word_vocab': vocab,
              'rev_word_vocab': rev_vocab,
@@ -72,10 +72,22 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
     trainset, devset, testset = (pd.read_json(os.path.join(in_dataset_folder, 'trainset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'devset.json')),
                                  pd.read_json(os.path.join(in_dataset_folder, 'testset.json')))
-    model, actual_config, vocabs = init_model(trainset, in_model_folder, resume, in_config)
-    X_train, ys_train = make_multitask_dataset(trainset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
-    X_dev, ys_dev = make_multitask_dataset(devset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
-    X_test, ys_test = make_multitask_dataset(testset, vocabs['word_vocab'], vocabs['label_vocab'], actual_config)
+    disf_model, actual_config, vocabs = init_model(trainset, in_model_folder, resume, in_config)
+    X_train, ys_train = make_multitask_dataset(trainset,
+                                               vocabs['word_vocab'],
+                                               vocabs['pos_vocab'],
+                                               vocabs['label_vocab'],
+                                               actual_config)
+    X_dev, ys_dev = make_multitask_dataset(devset,
+                                           vocabs['word_vocab'],
+                                           vocabs['pos_vocab'],
+                                           vocabs['label_vocab'],
+                                           actual_config)
+    X_test, ys_test = make_multitask_dataset(testset,
+                                             vocabs['word_vocab'],
+                                             vocabs['pos_vocab'],
+                                             vocabs['label_vocab'],
+                                             actual_config)
 
     class_weight = get_class_weight_proportional(ys_train[0],
                                                  smoothing_coef=actual_config['class_weight_smoothing_coef'])
@@ -84,7 +96,7 @@ def main(in_dataset_folder, in_model_folder, resume, in_config):
     label_freqs = list(map(itemgetter(1), sorted(class_weight.items(), key=itemgetter(0))))
     class_weight_vector = scaler.fit_transform(np.array(label_freqs).reshape(-1, 1)).flatten()
 
-    train(model,
+    train(disf_model,
           (X_train, ys_train),
           (X_dev, ys_dev),
           (X_test, ys_test),
