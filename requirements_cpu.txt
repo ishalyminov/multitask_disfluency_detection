@@ -47,7 +47,7 @@ ptyprocess==0.6.0
 Pygments==2.2.0
 python-dateutil==2.7.3
 pytz==2018.3
-PyYAML==3.12
+PyYAML==5.4
 pyzmq==17.1.2
 qtconsole==4.4.1
 scandir==1.9.0
