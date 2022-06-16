@@ -34,7 +34,7 @@ mock==2.0.0
 nbconvert==5.4.0
 nbformat==4.4.0
 nltk==3.2.5
-notebook==5.7.0
+notebook==6.4.12
 pandas==0.22.0
 pandocfilters==1.4.2
 pathlib2==2.3.2
